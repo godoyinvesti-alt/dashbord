@@ -6,6 +6,7 @@ import { resolvePeriodo } from "@/lib/date-range";
 import { getOverviewComparison, getSeriePorDia } from "@/lib/data/overview";
 import { getMetaMensalAtual } from "@/lib/data/goals";
 import { getInsights } from "@/lib/data/insights";
+import { generateSystemNotifications } from "@/lib/notifications/generate";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { DateRangeFilter } from "@/components/shared/date-range-filter";
@@ -31,6 +32,7 @@ export default async function OverviewPage({
     getOverviewComparison(ctx.workspace.id, periodo),
     getSeriePorDia(ctx.workspace.id, periodo.from, periodo.to),
     getMetaMensalAtual(ctx.workspace.id, ctx.workspace.meta_faturamento_mensal),
+    generateSystemNotifications(ctx.workspace.id),
   ]);
 
   const insights = await getInsights(
