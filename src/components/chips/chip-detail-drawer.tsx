@@ -41,6 +41,7 @@ export function ChipDetailDrawer({
 
   useEffect(() => {
     if (open && chip) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- inicia o carregamento assíncrono do histórico ao abrir o painel
       setLoading(true);
       fetchTimeline(chip.id)
         .then(setTimeline)

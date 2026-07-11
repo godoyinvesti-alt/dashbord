@@ -33,7 +33,6 @@ export function SearchInput({
       startTransition(() => {
         router.push(`${pathname}?${params.toString()}`);
       });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, 350);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps

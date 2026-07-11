@@ -24,7 +24,6 @@ export function StatCard({
   hint?: string;
 }) {
   const isPositive = (changePercent ?? 0) > 0;
-  const isNegative = (changePercent ?? 0) < 0;
   const isNeutral = !changePercent || changePercent === 0;
 
   const positiveIsGood = !invertTrendColor;

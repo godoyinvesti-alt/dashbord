@@ -43,7 +43,7 @@ export function WorkspaceSwitcher({
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+        <DropdownMenuLabel>Espaços de trabalho</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {workspaces.map((w) => (
           <form action={switchWorkspaceAction} key={w.id}>

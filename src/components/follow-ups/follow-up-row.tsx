@@ -34,7 +34,7 @@ export function FollowUpRowItem({ item }: { item: FollowUpRow }) {
           Agendado para <span className="font-medium text-foreground">{formatDateTime(item.data_agendada)}</span>
           {item.agente_nome && <> · Atendente: {item.agente_nome}</>}
         </p>
-        {item.observacoes && <p className="text-xs italic text-muted-foreground">"{item.observacoes}"</p>}
+        {item.observacoes && <p className="text-xs italic text-muted-foreground">&ldquo;{item.observacoes}&rdquo;</p>}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <WhatsAppButton phone={item.lead_whatsapp ?? ""} size="sm" />

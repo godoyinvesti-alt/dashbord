@@ -40,10 +40,12 @@ export function AppShell({
 
   useEffect(() => {
     const stored = localStorage.getItem(COLLAPSE_KEY);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- lê preferência persistida no primeiro render do cliente
     if (stored) setCollapsed(stored === "1");
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fecha o drawer mobile ao trocar de rota
     setMobileOpen(false);
   }, [pathname]);
 

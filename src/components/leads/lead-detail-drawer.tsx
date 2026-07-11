@@ -78,6 +78,7 @@ export function LeadDetailDrawer({
 
   useEffect(() => {
     if (open && lead) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- inicia o carregamento assíncrono do histórico ao abrir o painel
       setLoading(true);
       fetchLeadTimelineAction(lead.id)
         .then((data) => {

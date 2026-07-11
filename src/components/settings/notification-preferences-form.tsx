@@ -66,7 +66,7 @@ export function NotificationPreferencesForm({ settings }: { settings: Settings }
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          Os limites de dias e incidentes para os alertas de chip são configurados na aba "Chips".
+          Os limites de dias e incidentes para os alertas de chip são configurados na aba &ldquo;Chips&rdquo;.
         </p>
       </CardContent>
     </Card>

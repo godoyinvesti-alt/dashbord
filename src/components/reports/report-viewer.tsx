@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Download, FileText, Loader2, FileBarChart } from "lucide-react";
+import { Download, FileText, FileBarChart } from "lucide-react";
 
 import {
   Select,
