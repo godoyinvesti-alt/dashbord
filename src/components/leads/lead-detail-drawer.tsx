@@ -30,6 +30,7 @@ import { Separator } from "@/components/ui/separator";
 import { WhatsAppButton } from "@/components/leads/whatsapp-button";
 import { TemperaturaBadge, StatusPagamentoBadge } from "@/components/leads/lead-badges";
 import { LeadFormDialog } from "@/components/leads/lead-form-dialog";
+import { ScheduleFollowUpDialog } from "@/components/follow-ups/schedule-follow-up-dialog";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import {
@@ -248,7 +249,13 @@ export function LeadDetailDrawer({
               )}
             </TabsContent>
 
-            <TabsContent value="followups" className="pt-4">
+            <TabsContent value="followups" className="space-y-3 pt-4">
+              <ScheduleFollowUpDialog
+                leadId={lead.id}
+                onScheduled={() => {
+                  fetchLeadTimelineAction(lead.id).then((data) => setFollowUps(data.followUps));
+                }}
+              />
               {loading ? (
                 <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
               ) : followUps.length === 0 ? (
