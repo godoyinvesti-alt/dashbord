@@ -44,7 +44,7 @@ export default function LoginPage() {
   return (
     <AuthShell
       title="Entrar na sua conta"
-      description="Acesse o painel do X1 Control"
+      description="Acesse o painel do Controle X1"
       footer={
         <span className="text-muted-foreground">
           Ainda não tem uma conta?{" "}

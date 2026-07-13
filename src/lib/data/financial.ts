@@ -1,120 +1,134 @@
 import "server-only";
+import { format, startOfMonth, endOfDay } from "date-fns";
 import { createClient } from "@/lib/supabase/server";
-import type { Periodo } from "@/lib/date-range";
+import { resolvePeriodo } from "@/lib/date-range";
+import { CATEGORIA_DESPESA_OPCOES } from "@/lib/constants";
+import type { Expense, CategoriaDespesa } from "@/lib/types";
 
-export interface FinancialSummary {
-  grossRevenue: number;
-  amountReceived: number;
-  pendingPayments: number;
-  advertisingExpenses: number;
-  toolExpenses: number;
-  teamCommissions: number;
-  paymentFees: number;
-  refunds: number;
-  otherExpenses: number;
-  totalExpenses: number;
-  estimatedProfit: number;
-  netProfit: number;
-  margin: number;
-  roas: number;
+const PAGE_SIZE = 20;
+
+export interface ListExpensesOptions {
+  q?: string;
+  categoria?: string;
+  page?: number;
 }
 
-export async function getFinancialSummary(workspaceId: string, periodo: Periodo): Promise<FinancialSummary> {
+export async function listExpenses(options: ListExpensesOptions = {}) {
   const supabase = await createClient();
-  const fromIso = periodo.from.toISOString();
-  const toIso = periodo.to.toISOString();
-  const fromDate = periodo.from.toISOString().slice(0, 10);
-  const toDate = periodo.to.toISOString().slice(0, 10);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { expenses: [] as Expense[], total: 0, page: 1, totalPages: 1 };
 
-  const [{ data: sales }, { data: expenses }, { data: pendentes }] = await Promise.all([
-    supabase
-      .from("sales")
-      .select("valor_esperado, valor_recebido")
-      .eq("workspace_id", workspaceId)
-      .gte("data_pagamento", fromIso)
-      .lte("data_pagamento", toIso),
-    supabase
-      .from("expenses")
-      .select("valor, categoria")
-      .eq("workspace_id", workspaceId)
-      .gte("data", fromDate)
-      .lte("data", toDate),
-    supabase
-      .from("leads")
-      .select("valor_esperado, valor_recebido")
-      .eq("workspace_id", workspaceId)
-      .in("status_pagamento", ["pix_enviado", "aguardando_pagamento", "pagamento_parcial"]),
-  ]);
+  const page = options.page && options.page > 0 ? options.page : 1;
 
-  const salesRows = sales ?? [];
-  const expenseRows = expenses ?? [];
-  const pendentesRows = pendentes ?? [];
+  let query = supabase.from("expenses").select("*", { count: "exact" });
+  if (options.q) {
+    query = query.or(`descricao.ilike.%${options.q}%,operacao_vinculada.ilike.%${options.q}%`);
+  }
+  if (options.categoria) {
+    query = query.eq("categoria", options.categoria);
+  }
+  query = query.order("data", { ascending: false }).range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
-  const grossRevenue = salesRows.reduce((sum, s) => sum + Number(s.valor_esperado ?? 0), 0);
-  const amountReceived = salesRows.reduce((sum, s) => sum + Number(s.valor_recebido ?? 0), 0);
-  const pendingPayments = pendentesRows.reduce(
-    (sum, l) => sum + Math.max(Number(l.valor_esperado ?? 0) - Number(l.valor_recebido ?? 0), 0),
-    0
-  );
+  const { data, count } = await query;
 
-  const byCategory = (cat: string) =>
-    expenseRows.filter((e) => e.categoria === cat).reduce((sum, e) => sum + Number(e.valor ?? 0), 0);
-
-  const advertisingExpenses = byCategory("trafego_pago");
-  const toolExpenses = byCategory("ferramentas");
-  const teamCommissions = byCategory("funcionarios") + byCategory("comissoes");
-  const paymentFees = byCategory("plataforma");
-  const refunds = byCategory("reembolsos");
-  const otherExpenses = byCategory("outros");
-
-  const totalExpenses = expenseRows.reduce((sum, e) => sum + Number(e.valor ?? 0), 0);
-
-  const estimatedProfit = grossRevenue - totalExpenses;
-  const netProfit = amountReceived - totalExpenses;
-  const margin = amountReceived > 0 ? (netProfit / amountReceived) * 100 : 0;
-  const roas = advertisingExpenses > 0 ? amountReceived / advertisingExpenses : 0;
-
+  const total = count ?? 0;
   return {
-    grossRevenue,
-    amountReceived,
-    pendingPayments,
-    advertisingExpenses,
-    toolExpenses,
-    teamCommissions,
-    paymentFees,
-    refunds,
-    otherExpenses,
-    totalExpenses,
-    estimatedProfit,
-    netProfit,
-    margin,
-    roas,
+    expenses: (data as Expense[]) ?? [],
+    total,
+    page,
+    totalPages: Math.max(Math.ceil(total / PAGE_SIZE), 1),
   };
 }
 
-export interface ExpenseFilters {
-  categoria?: string;
-  page?: number;
-  pageSize?: number;
+export interface FinancialSummary {
+  faturamento: number;
+  taxas: number;
+  reembolsos: number;
+  despesas: number;
+  lucroLiquido: number;
+  margemLucro: number;
+  despesasPorCategoria: { categoria: CategoriaDespesa; total: number }[];
 }
 
-export async function listExpenses(workspaceId: string, filters: ExpenseFilters) {
+export async function getFinancialSummary(
+  periodo?: string,
+  de?: string,
+  ate?: string
+): Promise<FinancialSummary> {
   const supabase = await createClient();
-  const page = filters.page ?? 1;
-  const pageSize = filters.pageSize ?? 20;
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
+  const range = resolvePeriodo(periodo, de, ate);
+  const fromStr = format(range.from, "yyyy-MM-dd");
+  const toStr = format(range.to, "yyyy-MM-dd");
 
-  let query = supabase.from("expenses").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
-  if (filters.categoria) query = query.eq("categoria", filters.categoria);
+  const [{ data: sales }, { data: expenses }] = await Promise.all([
+    supabase
+      .from("sales")
+      .select("data, valor_recebido, taxas, reembolso")
+      .gte("data", fromStr)
+      .lte("data", toStr),
+    supabase
+      .from("expenses")
+      .select("valor, categoria")
+      .gte("data", fromStr)
+      .lte("data", toStr),
+  ]);
 
-  const { data, count } = await query.order("data", { ascending: false }).range(from, to);
+  const salesRows = (sales as { data: string; valor_recebido: number; taxas: number; reembolso: number }[]) ?? [];
+  const expenseRows = (expenses as { valor: number; categoria: CategoriaDespesa }[]) ?? [];
+
+  const faturamento = salesRows.reduce((sum, s) => sum + (s.valor_recebido ?? 0), 0);
+  const taxas = salesRows.reduce((sum, s) => sum + (s.taxas ?? 0), 0);
+  const reembolsos = salesRows.reduce((sum, s) => sum + (s.reembolso ?? 0), 0);
+  const despesas = expenseRows.reduce((sum, e) => sum + (e.valor ?? 0), 0);
+
+  const lucroLiquido = faturamento - taxas - reembolsos - despesas;
+  const margemLucro = faturamento > 0 ? (lucroLiquido / faturamento) * 100 : 0;
+
+  const totalPorCategoria = new Map<CategoriaDespesa, number>();
+  for (const e of expenseRows) {
+    totalPorCategoria.set(e.categoria, (totalPorCategoria.get(e.categoria) ?? 0) + (e.valor ?? 0));
+  }
+  const despesasPorCategoria = CATEGORIA_DESPESA_OPCOES.filter((c) => (totalPorCategoria.get(c) ?? 0) > 0).map(
+    (categoria) => ({ categoria, total: totalPorCategoria.get(categoria) ?? 0 })
+  );
+
+  return { faturamento, taxas, reembolsos, despesas, lucroLiquido, margemLucro, despesasPorCategoria };
+}
+
+export interface CurrentMonthResults {
+  faturamento: number;
+  lucro: number;
+  numeroVendas: number;
+}
+
+export async function getCurrentMonthResults(): Promise<CurrentMonthResults> {
+  const supabase = await createClient();
+  const now = new Date();
+  const fromStr = format(startOfMonth(now), "yyyy-MM-dd");
+  const toStr = format(endOfDay(now), "yyyy-MM-dd");
+
+  const [{ data: sales }, { data: expenses }] = await Promise.all([
+    supabase
+      .from("sales")
+      .select("valor_recebido, taxas, reembolso")
+      .gte("data", fromStr)
+      .lte("data", toStr),
+    supabase.from("expenses").select("valor").gte("data", fromStr).lte("data", toStr),
+  ]);
+
+  const salesRows = (sales as { valor_recebido: number; taxas: number; reembolso: number }[]) ?? [];
+  const expenseRows = (expenses as { valor: number }[]) ?? [];
+
+  const faturamento = salesRows.reduce((sum, s) => sum + (s.valor_recebido ?? 0), 0);
+  const taxas = salesRows.reduce((sum, s) => sum + (s.taxas ?? 0), 0);
+  const reembolsos = salesRows.reduce((sum, s) => sum + (s.reembolso ?? 0), 0);
+  const despesas = expenseRows.reduce((sum, e) => sum + (e.valor ?? 0), 0);
 
   return {
-    expenses: data ?? [],
-    total: count ?? 0,
-    page,
-    pageSize,
-    totalPages: Math.max(Math.ceil((count ?? 0) / pageSize), 1),
+    faturamento,
+    lucro: faturamento - taxas - reembolsos - despesas,
+    numeroVendas: salesRows.length,
   };
 }

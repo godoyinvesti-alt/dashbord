@@ -1,12 +1,8 @@
-# X1 Control
+# Controle X1
 
-Painel completo (SaaS) para gestão de vendas 1 a 1 pelo WhatsApp — leads, funil de
-vendas, follow-ups, pagamentos, produtos, campanhas, chips/números, metas,
-financeiro, equipe e relatórios. Toda a interface é em português do Brasil.
-
-> **X1 Control** é um nome temporário e pode ser trocado facilmente: a marca fica
-> centralizada em `src/lib/constants.ts` (`APP_NAME`) e no componente
-> `src/components/brand/logo.tsx`.
+Painel completo para gestão de operações de chips: chips e aquecimento, ativos de
+contingência, vendas, financeiro e alertas operacionais. Toda a interface é em
+português do Brasil.
 
 ## Sumário
 
@@ -17,7 +13,7 @@ financeiro, equipe e relatórios. Toda a interface é em português do Brasil.
 - [Como rodar as migrações](#como-rodar-as-migrações)
 - [Como inserir dados de demonstração](#como-inserir-dados-de-demonstração)
 - [Como iniciar o projeto](#como-iniciar-o-projeto)
-- [Como funciona o sistema de alerta de chips](#como-funciona-o-sistema-de-alerta-de-chips)
+- [Como funciona o sistema de alertas](#como-funciona-o-sistema-de-alertas)
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Limitações conhecidas](#limitações-conhecidas)
 
@@ -28,12 +24,11 @@ financeiro, equipe e relatórios. Toda a interface é em português do Brasil.
   depender do registro externo do shadcn)
 - **Lucide** para ícones
 - **Supabase** (Postgres + Auth + Row Level Security) para banco de dados e
-  autenticação
+  autenticação — cada usuário só acessa os próprios dados (`owner_id = auth.uid()`)
 - **Recharts** para gráficos
 - **React Hook Form** + **Zod** para formulários e validação
-- **date-fns** com locale `pt-BR` e fuso horário `America/Sao_Paulo`
-- **dnd-kit** para o quadro Kanban do funil
-- **jsPDF** para exportação de relatórios em PDF
+- **next-themes** para tema claro/escuro/sistema
+- **date-fns** com locale `pt-BR`
 
 ## Como instalar
 
@@ -46,10 +41,9 @@ npm install
 1. Crie um projeto gratuito em [supabase.com](https://supabase.com).
 2. Em **Project Settings → API**, copie a **Project URL** e a chave **anon
    public**.
-3. Em **Project Settings → API**, copie também a chave **service_role** (usada
-   apenas pelo script de seed, nunca no navegador).
-4. Rode as migrações SQL (veja a seção abaixo) usando o SQL Editor do Supabase
-   ou a CLI do Supabase.
+3. Copie também a chave **service_role** (usada apenas pelo script de seed,
+   nunca no navegador).
+4. Rode as migrações SQL (veja a seção abaixo).
 5. Em **Authentication → URL Configuration**, adicione a URL da sua aplicação
    (ex.: `http://localhost:3000`) e o redirect
    `http://localhost:3000/auth/callback`.
@@ -73,14 +67,14 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 
 As migrações estão em `supabase/migrations/`, em ordem:
 
-1. `0001_schema.sql` — todas as tabelas, tipos enumerados e triggers de
-   `updated_at`.
-2. `0002_rls.sql` — Row Level Security: cada usuário só acessa dados dos
-   workspaces aos quais pertence (via tabela `workspace_members`).
-3. `0003_functions.sql` — funções de negócio: criação de workspace com etapas
-   de funil padrão, atualização automática de chips ao registrar recarga ou
-   incidente, histórico automático de mudança de etapa do lead e log de
-   atividades.
+1. `0001_schema.sql` — tabelas, tipos enumerados e triggers de `updated_at`,
+   além do trigger que cria `profiles`/`settings` automaticamente no cadastro.
+2. `0002_rls.sql` — Row Level Security: cada usuário só acessa as próprias
+   linhas (`owner_id = auth.uid()`) em todas as tabelas.
+3. `0003_functions.sql` — funções RPC usadas pelas ações rápidas de chips:
+   registrar recarga, alterar status, registrar banimento e registrar
+   recuperação (cada uma atualiza o chip e grava o histórico numa única
+   transação).
 
 **Opção A — SQL Editor do Supabase:** abra cada arquivo, cole o conteúdo no SQL
 Editor do painel do Supabase e execute na ordem acima.
@@ -91,10 +85,6 @@ Editor do painel do Supabase e execute na ordem acima.
 npx supabase link --project-ref SEU_PROJECT_REF
 npx supabase db push
 ```
-
-Todas as migrações foram validadas rodando-as em sequência em um Postgres
-local (incluindo a criação de workspace, o registro de recargas e de
-incidentes de chip), garantindo que apliquem sem erros.
 
 ## Como inserir dados de demonstração
 
@@ -107,13 +97,15 @@ npm run seed
 
 O script `scripts/seed.ts`:
 
-- Cria (ou reaproveita) o usuário `demo@x1control.com.br` / senha `demo123456`.
-- Cria o workspace **"Loja Demo X1"** com as etapas padrão do funil.
-- Popula produtos, atendentes, campanhas/criativos, **12 chips cobrindo todos
-  os estados de alerta** (recarregado recentemente, entre 21–30 dias, mais de
-  30 dias, sem histórico de recarga, bloqueado, banido, com múltiplos
-  incidentes, sem responsável), ~90 leads distribuídos pelas etapas do funil,
-  follow-ups, vendas (incluindo upsells e reembolsos), despesas e metas.
+- Cria (ou reaproveita) o usuário `demo@controlex1.com.br` / senha `demo123456`.
+- Popula **17 chips cobrindo todos os status** (novo, em aquecimento, aquecido,
+  ativo, em observação, instável, banido, em recuperação, inativo, descartado)
+  e todos os cenários de alerta de recarga (em dia, atenção, atrasado, crítico),
+  com histórico de recargas, banimentos (incluindo recuperados e não
+  recuperados) e mudanças de status.
+- Popula ~24 ativos de contingência cobrindo todos os tipos e status.
+- Cria ~130 vendas distribuídas nos últimos 45 dias, despesas em todas as
+  categorias e a meta do mês atual.
 
 Depois do seed, faça login com o e-mail e senha acima.
 
@@ -125,8 +117,8 @@ npm run dev
 
 Acesse [http://localhost:3000](http://localhost:3000). Você será redirecionado
 para `/login`. Crie uma conta em **/registrar** (ou use o usuário de
-demonstração) — no primeiro acesso sem workspace, você será levado para
-**/onboarding** para criar seu workspace.
+demonstração) — o perfil e as configurações padrão são criados automaticamente
+no cadastro (trigger `handle_new_user`).
 
 Outros comandos úteis:
 
@@ -136,80 +128,72 @@ npm run lint    # eslint
 npm run seed    # popular dados de demonstração
 ```
 
-## Como funciona o sistema de alerta de chips
+## Como funciona o sistema de alertas
 
-O módulo **Chips e Números** monitora dinamicamente a última recarga de cada
-chip:
+A cada carregamento do painel (`/dashboard`), o servidor roda
+`generateAlerts()` (`src/lib/alerts/generate.ts`), que verifica, para o usuário
+autenticado:
 
-```
-dias_desde_recarga = differenceInCalendarDays(hoje, last_recharge_date)
-```
+| Alerta | Condição |
+|---|---|
+| Chip sem recarga | dias desde a última recarga > `dias_alerta_recarga` (padrão 30) |
+| Aquecimento concluído | dias de aquecimento ≥ meta do chip, status ainda "Em aquecimento" |
+| Chip banido | status do chip é "Banido" |
+| Banimentos repetidos | chip com 3 ou mais banimentos no histórico |
+| Poucos chips ativos | total de chips com status "Ativo" abaixo do mínimo configurado |
+| Meta atrasada | faturamento do mês abaixo do ritmo necessário para a meta configurada |
+| Despesas acima do limite | despesas do mês acima do limite configurado |
 
-O cálculo usa o fuso horário `America/Sao_Paulo` e é sempre relativo à data
-atual — nenhum número de dias é fixo no código, o nível de alerta é
-recalculado a cada carregamento da página com base nos limites configurados
-em **Configurações → Chips**:
+Cada verificação evita duplicar um alerta já aberto (não resolvido) do mesmo
+tipo para a mesma entidade. Os alertas aparecem no sino de notificações, na
+seção **Atenção necessária** do dashboard e na página **Alertas**, com níveis
+Informativo/Atenção/Importante/Crítico. Os limites usados (dias de aquecimento,
+dias de alerta de recarga, mínimo de chips ativos, limite de despesas, metas
+mensais) são configuráveis em **Configurações**.
 
-| Nível | Condição padrão | Cor |
-|---|---|---|
-| Em dia | recarga há menos de 21 dias | verde |
-| Atenção | recarga entre 21 e 30 dias | amarelo |
-| Atrasado | recarga há mais de 30 dias | vermelho |
-| Crítico | nenhuma recarga registrada | vermelho escuro |
-
-Quando um chip está atrasado ou crítico, a linha da tabela fica destacada, um
-ícone de alerta é exibido com a mensagem "Chip há mais de 30 dias sem
-recarga." (ou "Nenhuma recarga registrada" quando aplicável) e uma
-notificação é gerada automaticamente no sino de notificações.
-
-Ao clicar em **Registrar recarga**, a data e o valor da última recarga do chip
-são atualizados automaticamente (via trigger no banco de dados,
-`chip_recharges` → `chips`), um registro de histórico é criado e o alerta de
-atraso desaparece imediatamente. Da mesma forma, **Registrar queda** cria um
-incidente, incrementa o contador de quedas do chip e pode alterar seu status —
-tudo via trigger (`chip_incidents` → `chips`), garantindo consistência mesmo
-que o registro seja feito por diferentes telas.
-
-Os limites (21/30 dias, número de incidentes) são configuráveis por workspace
-em **Configurações → Chips**.
+Em produção, o ideal é mover essa verificação para uma Supabase Edge Function
+agendada (cron) em vez de rodar a cada carregamento do dashboard — veja
+limitações conhecidas.
 
 ## Estrutura do projeto
 
 ```
 src/
   app/
-    (rotas públicas)      login, registrar, recuperar-senha, redefinir-senha, onboarding
-    dashboard/            layout protegido + uma pasta por seção do menu lateral
+    (rotas públicas)      login, registrar, recuperar-senha, redefinir-senha
+    dashboard/            layout protegido (sidebar desktop + bottom nav mobile)
+      chips/               lista + detalhe (aquecimento, recargas, banimentos, histórico)
+      contingencia/         ativos de contingência
+      vendas/               registro rápido de vendas
+      financeiro/           despesas, resumo financeiro e progresso de metas
+      alertas/              lista de alertas operacionais
+      configuracoes/        negócio, chips/alertas, metas, notificações, tema
   components/
-    ui/                   componentes base no padrão shadcn/ui (button, card, dialog...)
-    layout/               shell do app (sidebar, topbar, notificações)
-    <módulo>/              componentes específicos de cada seção (leads, chips, vendas...)
+    ui/                   componentes base no padrão shadcn/ui
+    layout/               shell do app (sidebar, bottom nav, sino de alertas)
+    <módulo>/              componentes específicos de cada seção
   lib/
     supabase/              clientes Supabase (browser, server, middleware)
     data/                  camada de acesso a dados (consultas Supabase)
-    actions/                Server Actions (mutações: criar, atualizar, excluir)
-    validations/            schemas Zod usados nos formulários e nas actions
+    actions/                Server Actions (mutações)
+    validations/            schemas Zod
     types.ts                modelos TypeScript de todas as entidades
     constants.ts             rótulos em português, opções de enum, navegação
-    chip-alerts.ts           lógica do sistema de alerta de chips
+    chip-calc.ts             cálculos de aquecimento e alerta de recarga
     goal-calc.ts              cálculos de metas e projeções
+    alerts/generate.ts        geração automática de alertas
 supabase/
-  migrations/               esquema SQL, RLS e funções de negócio
+  migrations/               esquema SQL, RLS e funções RPC
 scripts/
   seed.ts                    script de dados de demonstração
 ```
 
 ## Limitações conhecidas
 
-- **Sem worker agendado:** notificações automáticas (chips, follow-ups
-  atrasados, pagamentos pendentes) são geradas sob demanda ao carregar a
-  Visão Geral, com deduplicação de ~20h por tipo — em produção o ideal é
-  mover essa geração para uma Supabase Edge Function agendada (cron).
+- **Sem worker agendado:** alertas automáticos são gerados sob demanda ao
+  carregar o Dashboard — em produção o ideal é mover essa geração para uma
+  Supabase Edge Function agendada (cron).
 - **Ambiente de build sem acesso a um projeto Supabase real:** o código foi
-  validado com `next build`/`tsc --noEmit` e as migrações foram testadas em
-  um Postgres local; a verificação end-to end em um projeto Supabase real
-  (login, RLS em produção, e-mails de recuperação de senha) deve ser feita
-  após a configuração das variáveis de ambiente.
-- **Exportação em PDF** usa uma tabela simples (jsPDF); para relatórios com
-  identidade visual mais elaborada, considere um serviço de geração de PDF
-  dedicado.
+  validado com `next build`/`tsc --noEmit`; a verificação end-to-end em um
+  projeto Supabase real (login, RLS em produção, e-mails de recuperação de
+  senha) deve ser feita após a configuração das variáveis de ambiente.

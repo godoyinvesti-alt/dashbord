@@ -1,92 +1,118 @@
 import "server-only";
+import { format } from "date-fns";
 import { createClient } from "@/lib/supabase/server";
-import type { Sale, StatusEntrega, StatusReembolso } from "@/lib/types";
+import { resolvePeriodo } from "@/lib/date-range";
+import type { Sale } from "@/lib/types";
 
-export interface SaleFilters {
+const PAGE_SIZE = 20;
+
+export interface ListSalesOptions {
   q?: string;
-  statusEntrega?: StatusEntrega;
-  statusReembolso?: StatusReembolso;
-  agentId?: string;
-  productId?: string;
   page?: number;
-  pageSize?: number;
+  periodo?: string;
+  de?: string;
+  ate?: string;
 }
 
-export interface SaleRow extends Sale {
-  produto_nome?: string;
-  agente_nome?: string | null;
-  chip_nome?: string | null;
-  campanha_nome?: string | null;
-  criativo_nome?: string | null;
-  contribuicao_adicional?: number;
-}
-
-const SALE_SELECT = `
-  *,
-  produto:products(id, nome),
-  agente:agents(id, nome),
-  chip:chips(id, name),
-  campanha:campaigns(id, nome),
-  criativo:creatives(id, nome)
-`;
-
-function mapSale(row: Record<string, unknown>): SaleRow {
-  const produto = row.produto as { nome?: string } | null;
-  const agente = row.agente as { nome?: string } | null;
-  const chip = row.chip as { name?: string } | null;
-  const campanha = row.campanha as { nome?: string } | null;
-  const criativo = row.criativo as { nome?: string } | null;
-
-  return {
-    ...(row as unknown as Sale),
-    produto_nome: produto?.nome ?? "—",
-    agente_nome: agente?.nome ?? null,
-    chip_nome: chip?.name ?? null,
-    campanha_nome: campanha?.nome ?? null,
-    criativo_nome: criativo?.nome ?? null,
-    contribuicao_adicional: Number(row.contribuicao_adicional ?? 0),
-  };
-}
-
-export async function listSales(workspaceId: string, filters: SaleFilters) {
+export async function listSales(options: ListSalesOptions = {}) {
   const supabase = await createClient();
-  const page = filters.page ?? 1;
-  const pageSize = filters.pageSize ?? 20;
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { sales: [] as Sale[], total: 0, page: 1, totalPages: 1 };
 
-  let query = supabase.from("sales").select(SALE_SELECT, { count: "exact" }).eq("workspace_id", workspaceId);
+  const page = options.page && options.page > 0 ? options.page : 1;
+  const periodo = resolvePeriodo(options.periodo, options.de, options.ate);
+  const fromStr = format(periodo.from, "yyyy-MM-dd");
+  const toStr = format(periodo.to, "yyyy-MM-dd");
 
-  if (filters.q) query = query.ilike("cliente_nome", `%${filters.q}%`);
-  if (filters.statusEntrega) query = query.eq("status_entrega", filters.statusEntrega);
-  if (filters.statusReembolso) query = query.eq("status_reembolso", filters.statusReembolso);
-  if (filters.agentId) query = query.eq("agent_id", filters.agentId);
-  if (filters.productId) query = query.eq("product_id", filters.productId);
+  let query = supabase.from("sales").select("*", { count: "exact" });
+  if (options.q) {
+    query = query.or(
+      `produto.ilike.%${options.q}%,cliente.ilike.%${options.q}%,vendedor.ilike.%${options.q}%`
+    );
+  }
+  query = query
+    .gte("data", fromStr)
+    .lte("data", toStr)
+    .order("data", { ascending: false })
+    .order("created_at", { ascending: false })
+    .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
-  const { data, count } = await query.order("created_at", { ascending: false }).range(from, to);
+  const { data, count } = await query;
 
-  return {
-    sales: ((data as Record<string, unknown>[]) ?? []).map(mapSale),
-    total: count ?? 0,
-    page,
-    pageSize,
-    totalPages: Math.max(Math.ceil((count ?? 0) / pageSize), 1),
-  };
+  const sales = (data as Sale[]) ?? [];
+  const total = count ?? 0;
+  return { sales, total, page, totalPages: Math.max(Math.ceil(total / PAGE_SIZE), 1) };
 }
 
-export async function getSalesSummary(workspaceId: string) {
+export interface SalesSummary {
+  faturamentoBruto: number;
+  faturamentoLiquido: number;
+  totalVendas: number;
+  ticketMedio: number;
+  vendasPorChip: { chipId: string; chipNome: string; quantidade: number; receita: number }[];
+}
+
+export async function getSalesSummary(periodo?: string, de?: string, ate?: string): Promise<SalesSummary> {
   const supabase = await createClient();
+  const resolved = resolvePeriodo(periodo, de, ate);
+  const fromStr = format(resolved.from, "yyyy-MM-dd");
+  const toStr = format(resolved.to, "yyyy-MM-dd");
+
   const { data } = await supabase
     .from("sales")
-    .select("valor_recebido, valor_esperado, status_reembolso")
-    .eq("workspace_id", workspaceId);
+    .select("valor_recebido, taxas, reembolso, chip_id")
+    .gte("data", fromStr)
+    .lte("data", toStr);
 
-  const rows = data ?? [];
-  const totalVendas = rows.length;
-  const faturamento = rows.reduce((sum, r) => sum + Number(r.valor_recebido ?? 0), 0);
-  const ticketMedio = totalVendas > 0 ? faturamento / totalVendas : 0;
-  const reembolsos = rows.filter((r) => r.status_reembolso === "reembolsado").length;
-  const taxaReembolso = totalVendas > 0 ? (reembolsos / totalVendas) * 100 : 0;
+  const sales = (data as Pick<Sale, "valor_recebido" | "taxas" | "reembolso" | "chip_id">[]) ?? [];
 
-  return { totalVendas, faturamento, ticketMedio, taxaReembolso };
+  const faturamentoBruto = sales.reduce((sum, s) => sum + (s.valor_recebido ?? 0), 0);
+  const faturamentoLiquido = sales.reduce(
+    (sum, s) => sum + (s.valor_recebido ?? 0) - (s.taxas ?? 0) - (s.reembolso ?? 0),
+    0
+  );
+  const totalVendas = sales.length;
+  const ticketMedio = totalVendas > 0 ? faturamentoBruto / totalVendas : 0;
+
+  const porChip = new Map<string, { quantidade: number; receita: number }>();
+  for (const s of sales) {
+    if (!s.chip_id) continue;
+    const entry = porChip.get(s.chip_id) ?? { quantidade: 0, receita: 0 };
+    entry.quantidade += 1;
+    entry.receita += s.valor_recebido ?? 0;
+    porChip.set(s.chip_id, entry);
+  }
+
+  let vendasPorChip: SalesSummary["vendasPorChip"] = [];
+  if (porChip.size > 0) {
+    const { data: chips } = await supabase
+      .from("chips")
+      .select("id, nome")
+      .in("id", Array.from(porChip.keys()));
+    const chipNomeById = new Map(((chips as { id: string; nome: string }[]) ?? []).map((c) => [c.id, c.nome]));
+    vendasPorChip = Array.from(porChip.entries())
+      .map(([chipId, v]) => ({
+        chipId,
+        chipNome: chipNomeById.get(chipId) ?? "—",
+        quantidade: v.quantidade,
+        receita: v.receita,
+      }))
+      .sort((a, b) => b.receita - a.receita);
+  }
+
+  return { faturamentoBruto, faturamentoLiquido, totalVendas, ticketMedio, vendasPorChip };
+}
+
+export interface ChipSelectOption {
+  id: string;
+  nome: string;
+  numero: string;
+}
+
+export async function listChipsForSelect(): Promise<ChipSelectOption[]> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("chips").select("id, nome, numero").order("nome", { ascending: true });
+  return (data as ChipSelectOption[]) ?? [];
 }

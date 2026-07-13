@@ -1,157 +1,144 @@
 import "server-only";
-import { startOfMonth } from "date-fns";
 import { createClient } from "@/lib/supabase/server";
-import { computeChip, DEFAULT_CHIP_ALERT_THRESHOLDS, type ChipAlertThresholds } from "@/lib/chip-alerts";
-import type { Chip, ChipComputed, ChipRecharge, ChipIncident, Settings } from "@/lib/types";
+import { computeChip } from "@/lib/chip-calc";
+import type { Chip, ChipBan, ChipComputed, ChipRecharge, ChipStatusHistory, Settings } from "@/lib/types";
 
-export interface ChipWithRelations extends ChipComputed {
-  agente_nome?: string | null;
+const PAGE_SIZE = 20;
+
+export interface ListChipsOptions {
+  q?: string;
+  status?: string;
+  page?: number;
 }
 
-export async function getChipThresholds(workspaceId: string): Promise<ChipAlertThresholds & { max_incidentes_alerta: number }> {
+async function getSettingsForCalc(ownerId: string): Promise<Pick<Settings, "dias_alerta_recarga" | "dias_aquecimento_padrao">> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("settings")
-    .select("*")
-    .eq("workspace_id", workspaceId)
-    .maybeSingle();
-
-  const settings = data as Settings | null;
-  return {
-    aviso_recarga_dias: settings?.aviso_recarga_dias ?? DEFAULT_CHIP_ALERT_THRESHOLDS.aviso_recarga_dias,
-    critico_recarga_dias: settings?.critico_recarga_dias ?? DEFAULT_CHIP_ALERT_THRESHOLDS.critico_recarga_dias,
-    max_incidentes_alerta: settings?.max_incidentes_alerta ?? 3,
-  };
+    .select("dias_alerta_recarga, dias_aquecimento_padrao")
+    .eq("owner_id", ownerId)
+    .single();
+  return (data as Settings) ?? { dias_alerta_recarga: 30, dias_aquecimento_padrao: 21 };
 }
 
-export async function listChips(workspaceId: string, includeArchived = false): Promise<ChipWithRelations[]> {
+export async function listChips(options: ListChipsOptions = {}) {
   const supabase = await createClient();
-  const thresholds = await getChipThresholds(workspaceId);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { chips: [] as ChipComputed[], total: 0, page: 1, totalPages: 1 };
 
-  let query = supabase
-    .from("chips")
-    .select("*, agente:agents(nome)")
-    .eq("workspace_id", workspaceId);
+  const page = options.page && options.page > 0 ? options.page : 1;
 
-  if (!includeArchived) query = query.eq("archived", false);
+  let query = supabase.from("chips").select("*", { count: "exact" });
+  if (options.q) {
+    query = query.or(`nome.ilike.%${options.q}%,numero.ilike.%${options.q}%,responsavel.ilike.%${options.q}%`);
+  }
+  if (options.status) {
+    query = query.eq("status", options.status);
+  }
+  query = query.order("created_at", { ascending: false }).range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
-  const { data } = await query.order("name", { ascending: true });
-  const rows = (data as (Chip & { agente: { nome?: string } | null })[]) ?? [];
-
-  return rows.map((c) => ({
-    ...computeChip(c, thresholds),
-    agente_nome: c.agente?.nome ?? null,
-  }));
-}
-
-export async function getChipDashboardStats(workspaceId: string) {
-  const chips = await listChips(workspaceId);
-  const thresholds = await getChipThresholds(workspaceId);
-
-  const total = chips.length;
-  const ativos = chips.filter((c) => c.status === "ativo").length;
-  const aquecimento = chips.filter((c) => c.status === "em_aquecimento").length;
-  const bloqueados = chips.filter((c) => c.status === "bloqueado").length;
-  const banidos = chips.filter((c) => c.status === "banido").length;
-  const semRecargaMais30 = chips.filter((c) => c.nivel_alerta === "vermelho" || c.nivel_alerta === "vermelho_escuro").length;
-  const semResponsavel = chips.filter((c) => !c.assigned_agent_id).length;
-
-  const supabase = await createClient();
-  const { count: quedasNoMes } = await supabase
-    .from("chip_incidents")
-    .select("id", { count: "exact", head: true })
-    .eq("workspace_id", workspaceId)
-    .gte("incident_date", startOfMonth(new Date()).toISOString());
-
-  const precisamAtencao = chips.filter(
-    (c) =>
-      c.nivel_alerta === "vermelho" ||
-      c.nivel_alerta === "vermelho_escuro" ||
-      c.status === "bloqueado" ||
-      c.status === "banido" ||
-      c.incident_count >= thresholds.max_incidentes_alerta ||
-      !c.assigned_agent_id ||
-      !c.last_recharge_date
-  );
-
-  return {
-    total,
-    ativos,
-    aquecimento,
-    bloqueados,
-    banidos,
-    semRecargaMais30,
-    semResponsavel,
-    quedasNoMes: quedasNoMes ?? 0,
-    precisamAtencao,
-    chips,
-  };
-}
-
-export interface ChipTimelineEntry {
-  id: string;
-  tipo: "recarga" | "incidente";
-  data: string;
-  detalhe: string;
-  extra?: string;
-}
-
-export async function getChipTimeline(workspaceId: string, chipId: string): Promise<ChipTimelineEntry[]> {
-  const supabase = await createClient();
-  const [{ data: recharges }, { data: incidents }] = await Promise.all([
-    supabase
-      .from("chip_recharges")
-      .select("*")
-      .eq("workspace_id", workspaceId)
-      .eq("chip_id", chipId)
-      .order("recharge_date", { ascending: false }),
-    supabase
-      .from("chip_incidents")
-      .select("*")
-      .eq("workspace_id", workspaceId)
-      .eq("chip_id", chipId)
-      .order("incident_date", { ascending: false }),
+  const [{ data, count }, settings, { data: bans }] = await Promise.all([
+    query,
+    getSettingsForCalc(user.id),
+    supabase.from("chip_bans").select("chip_id"),
   ]);
 
-  const rechargeEntries: ChipTimelineEntry[] = ((recharges as ChipRecharge[]) ?? []).map((r) => ({
-    id: r.id,
-    tipo: "recarga",
-    data: r.recharge_date,
-    detalhe: `Recarga de ${r.amount}`,
-    extra: r.payment_method ?? undefined,
-  }));
+  const banCountByChip = new Map<string, number>();
+  for (const row of (bans as { chip_id: string }[]) ?? []) {
+    banCountByChip.set(row.chip_id, (banCountByChip.get(row.chip_id) ?? 0) + 1);
+  }
 
-  const incidentEntries: ChipTimelineEntry[] = ((incidents as ChipIncident[]) ?? []).map((i) => ({
-    id: i.id,
-    tipo: "incidente",
-    data: i.incident_date,
-    detalhe: i.incident_type,
-    extra: i.reason ?? undefined,
-  }));
-
-  return [...rechargeEntries, ...incidentEntries].sort(
-    (a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()
+  const chips = ((data as Chip[]) ?? []).map((chip) =>
+    computeChip(chip, banCountByChip.get(chip.id) ?? 0, settings)
   );
+
+  const total = count ?? 0;
+  return { chips, total, page, totalPages: Math.max(Math.ceil(total / PAGE_SIZE), 1) };
 }
 
-export async function getChipRecharges(workspaceId: string, chipId?: string) {
+export async function listAllChipsForSelect(): Promise<Chip[]> {
   const supabase = await createClient();
-  let query = supabase
-    .from("chip_recharges")
-    .select("*, chip:chips(name, phone_number)")
-    .eq("workspace_id", workspaceId);
-  if (chipId) query = query.eq("chip_id", chipId);
-  const { data } = await query.order("recharge_date", { ascending: false }).limit(200);
-  return data ?? [];
+  const { data } = await supabase.from("chips").select("*").order("nome", { ascending: true });
+  return (data as Chip[]) ?? [];
 }
 
-export async function getChipIncidents(workspaceId: string, chipId?: string) {
+export interface ChipDetail {
+  chip: ChipComputed;
+  recharges: ChipRecharge[];
+  bans: ChipBan[];
+  statusHistory: ChipStatusHistory[];
+}
+
+export async function getChipDetail(id: string): Promise<ChipDetail | null> {
   const supabase = await createClient();
-  let query = supabase
-    .from("chip_incidents")
-    .select("*, chip:chips(name, phone_number)")
-    .eq("workspace_id", workspaceId);
-  if (chipId) query = query.eq("chip_id", chipId);
-  const { data } = await query.order("incident_date", { ascending: false }).limit(200);
-  return data ?? [];
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const [{ data: chipData }, { data: recharges }, { data: bans }, { data: statusHistory }, settings] =
+    await Promise.all([
+      supabase.from("chips").select("*").eq("id", id).single(),
+      supabase.from("chip_recharges").select("*").eq("chip_id", id).order("data", { ascending: false }),
+      supabase.from("chip_bans").select("*").eq("chip_id", id).order("data", { ascending: false }),
+      supabase
+        .from("chip_status_history")
+        .select("*")
+        .eq("chip_id", id)
+        .order("created_at", { ascending: false }),
+      getSettingsForCalc(user.id),
+    ]);
+
+  if (!chipData) return null;
+
+  const bansTyped = (bans as ChipBan[]) ?? [];
+  const chip = computeChip(chipData as Chip, bansTyped.length, settings);
+
+  return {
+    chip,
+    recharges: (recharges as ChipRecharge[]) ?? [],
+    bans: bansTyped,
+    statusHistory: (statusHistory as ChipStatusHistory[]) ?? [],
+  };
+}
+
+export interface ChipDashboardCounts {
+  total: number;
+  ativos: number;
+  emAquecimento: number;
+  banidos: number;
+  semRecarga: number;
+  porStatus: Record<string, number>;
+}
+
+export async function getChipDashboardCounts(): Promise<ChipDashboardCounts> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const settings = user ? await getSettingsForCalc(user.id) : { dias_alerta_recarga: 30, dias_aquecimento_padrao: 21 };
+
+  const { data } = await supabase.from("chips").select("*");
+  const chips = (data as Chip[]) ?? [];
+
+  const porStatus: Record<string, number> = {};
+  let semRecarga = 0;
+  for (const chip of chips) {
+    porStatus[chip.status] = (porStatus[chip.status] ?? 0) + 1;
+    const computed = computeChip(chip, 0, settings);
+    if (computed.nivel_alerta_recarga === "vermelho" || computed.nivel_alerta_recarga === "vermelho_escuro") {
+      semRecarga += 1;
+    }
+  }
+
+  return {
+    total: chips.length,
+    ativos: porStatus["ativo"] ?? 0,
+    emAquecimento: porStatus["em_aquecimento"] ?? 0,
+    banidos: porStatus["banido"] ?? 0,
+    semRecarga,
+    porStatus,
+  };
 }

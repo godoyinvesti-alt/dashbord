@@ -2,86 +2,59 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { requireContext } from "@/lib/workspace";
-import type { ActionResult } from "@/lib/actions/leads";
-import type { Operadora, PapelUsuario } from "@/lib/types";
+import { settingsFormSchema, type SettingsFormValues } from "@/lib/validations/settings";
 
-export async function updateWorkspaceAction(input: {
-  nome: string;
-  moeda: string;
-  fuso_horario: string;
-  meta_faturamento_mensal: number;
-}): Promise<ActionResult> {
-  if (!input.nome.trim()) return { error: "Informe o nome do negócio." };
-  const ctx = await requireContext();
-  const supabase = await createClient();
+export interface ActionResult {
+  error?: string;
+  success?: boolean;
+}
 
-  const { error } = await supabase
-    .from("workspaces")
-    .update({
-      nome: input.nome,
-      moeda: input.moeda,
-      fuso_horario: input.fuso_horario,
-      meta_faturamento_mensal: input.meta_faturamento_mensal,
-    })
-    .eq("id", ctx.workspace.id);
-
-  if (error) return { error: "Não foi possível atualizar as informações do negócio." };
+function revalidateSettings() {
   revalidatePath("/dashboard/configuracoes");
   revalidatePath("/dashboard");
-  return { success: true };
 }
 
-export async function updateChipSettingsAction(input: {
-  aviso_recarga_dias: number;
-  critico_recarga_dias: number;
-  max_incidentes_alerta: number;
-  operadora_padrao: Operadora;
-  notificacoes_ativas: boolean;
-}): Promise<ActionResult> {
-  if (input.aviso_recarga_dias >= input.critico_recarga_dias) {
-    return { error: "O aviso deve ocorrer antes do prazo crítico." };
+export async function updateSettingsAction(values: SettingsFormValues): Promise<ActionResult> {
+  const parsed = settingsFormSchema.safeParse(values);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   }
-  const ctx = await requireContext();
-  const supabase = await createClient();
 
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada. Faça login novamente." };
+
+  const v = parsed.data;
   const { error } = await supabase
     .from("settings")
-    .update(input)
-    .eq("workspace_id", ctx.workspace.id);
+    .update({
+      nome_negocio: v.nome_negocio,
+      dias_aquecimento_padrao: v.dias_aquecimento_padrao,
+      dias_alerta_recarga: v.dias_alerta_recarga,
+      minimo_chips_ativos: v.minimo_chips_ativos,
+      limite_despesas_mensal: v.limite_despesas_mensal ?? null,
+      notificacoes_ativas: v.notificacoes_ativas,
+    })
+    .eq("owner_id", user.id);
 
-  if (error) return { error: "Não foi possível atualizar as configurações de chips." };
-  revalidatePath("/dashboard/configuracoes");
-  revalidatePath("/dashboard/chips");
+  if (error) return { error: "Não foi possível salvar as configurações." };
+
+  revalidateSettings();
   return { success: true };
 }
 
-export async function updatePaymentMethodsAction(metodos: string[]): Promise<ActionResult> {
-  const ctx = await requireContext();
+export async function updateThemeAction(tema: "light" | "dark" | "system"): Promise<ActionResult> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("settings")
-    .update({ metodos_pagamento: metodos })
-    .eq("workspace_id", ctx.workspace.id);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada. Faça login novamente." };
 
-  if (error) return { error: "Não foi possível atualizar as formas de pagamento." };
-  revalidatePath("/dashboard/configuracoes");
-  return { success: true };
-}
+  const { error } = await supabase.from("settings").update({ tema }).eq("owner_id", user.id);
+  if (error) return { error: "Não foi possível salvar o tema." };
 
-export async function updateMemberRoleAction(memberId: string, papel: PapelUsuario): Promise<ActionResult> {
-  const ctx = await requireContext();
-  if (ctx.papel !== "administrador" && ctx.papel !== "gestor") {
-    return { error: "Você não tem permissão para alterar papéis da equipe." };
-  }
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("workspace_members")
-    .update({ papel })
-    .eq("id", memberId)
-    .eq("workspace_id", ctx.workspace.id);
-
-  if (error) return { error: "Não foi possível atualizar o papel do membro." };
-  revalidatePath("/dashboard/configuracoes");
+  revalidateSettings();
   return { success: true };
 }

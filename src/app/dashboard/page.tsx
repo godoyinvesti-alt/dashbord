@@ -1,67 +1,52 @@
-import { Suspense } from "react";
-import type { Metadata } from "next";
-
-import { requireContext } from "@/lib/workspace";
-import { resolvePeriodo } from "@/lib/date-range";
-import { getOverviewComparison, getSeriePorDia } from "@/lib/data/overview";
-import { getMetaMensalAtual } from "@/lib/data/goals";
-import { getInsights } from "@/lib/data/insights";
-import { generateSystemNotifications } from "@/lib/notifications/generate";
-
+import { getDashboardData } from "@/lib/data/dashboard";
+import { listAlerts } from "@/lib/data/alerts";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { DateRangeFilter } from "@/components/shared/date-range-filter";
-import { StatGrid } from "@/components/overview/stat-grid";
-import { GoalCard } from "@/components/overview/goal-card";
-import { InsightsBox } from "@/components/overview/insights-box";
-import { RevenueChart } from "@/components/overview/revenue-chart";
-import { LeadsSalesChart } from "@/components/overview/leads-sales-chart";
-import { CardsSkeleton } from "@/components/dashboard/loading";
+import { DashboardStatGrid } from "@/components/dashboard/dashboard-stat-grid";
+import { AttentionSection } from "@/components/dashboard/attention-section";
+import { RevenueProfitChart } from "@/components/dashboard/revenue-profit-chart";
+import { SalesPerDayChart } from "@/components/dashboard/sales-per-day-chart";
+import { SalesPerChipChart } from "@/components/dashboard/sales-per-chip-chart";
+import { ChipStatusBreakdown } from "@/components/dashboard/chip-status-breakdown";
 
-export const metadata: Metadata = { title: "Visão Geral" };
+export const metadata = { title: "Dashboard" };
 
-export default async function OverviewPage({
+export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | undefined>>;
+  searchParams: Promise<{ periodo?: string; de?: string; ate?: string }>;
 }) {
   const params = await searchParams;
-  const ctx = await requireContext();
-  const periodo = resolvePeriodo(params.periodo, params.de, params.ate);
-
-  const [{ atual, anterior }, serie, metaCtx] = await Promise.all([
-    getOverviewComparison(ctx.workspace.id, periodo),
-    getSeriePorDia(ctx.workspace.id, periodo.from, periodo.to),
-    getMetaMensalAtual(ctx.workspace.id, ctx.workspace.meta_faturamento_mensal),
-    generateSystemNotifications(ctx.workspace.id),
+  const [{ metrics, charts }, { alerts }] = await Promise.all([
+    getDashboardData(params.periodo, params.de, params.ate),
+    listAlerts(),
   ]);
 
-  const insights = await getInsights(
-    ctx.workspace.id,
-    metaCtx.resultado.valorRestante
-  );
-
   return (
-    <div className="space-y-6">
+    <div>
       <PageHeader
-        title="Visão Geral"
-        description={`Resumo da sua operação — ${periodo.label.toLowerCase()}`}
+        title="Dashboard"
+        description="Visão geral da operação em tempo real."
         actions={<DateRangeFilter />}
       />
 
-      <GoalCard ctx={metaCtx} />
+      <div className="space-y-4">
+        <DashboardStatGrid metrics={metrics} />
 
-      <Suspense fallback={<CardsSkeleton count={8} />}>
-        <StatGrid atual={atual} anterior={anterior} />
-      </Suspense>
+        <AttentionSection alerts={alerts} />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <RevenueChart serie={serie} />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <RevenueProfitChart data={charts.faturamentoLucroPorDia} />
+          </div>
+          <ChipStatusBreakdown data={charts.statusChips} />
         </div>
-        <InsightsBox insights={insights} />
-      </div>
 
-      <LeadsSalesChart serie={serie} />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <SalesPerDayChart data={charts.vendasPorDia} />
+          <SalesPerChipChart data={charts.vendasPorChip} />
+        </div>
+      </div>
     </div>
   );
 }

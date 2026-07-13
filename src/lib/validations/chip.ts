@@ -1,40 +1,45 @@
 import { z } from "zod";
+import { STATUS_CHIP_OPCOES } from "@/lib/constants";
 
-export const chipSchema = z.object({
-  name: z.string().min(2, "Informe o nome do chip."),
-  phone_number: z.string().min(10, "Informe um número de telefone válido."),
-  carrier: z.enum(["vivo", "claro", "tim", "algar", "outra"]),
-  activation_date: z.string().optional().or(z.literal("")),
-  status: z.enum(["ativo", "em_aquecimento", "bloqueado", "banido", "em_recuperacao", "desativado"]),
-  assigned_agent_id: z.string().optional().or(z.literal("")),
-  operation_name: z.string().optional().or(z.literal("")),
-  notes: z.string().optional().or(z.literal("")),
+export const chipFormSchema = z.object({
+  nome: z.string().trim().min(1, "Informe um nome para o chip."),
+  numero: z.string().trim().min(1, "Informe o número do chip."),
+  operadora: z.enum(["vivo", "claro", "tim", "oi", "algar", "outra"]),
+  status: z.enum(STATUS_CHIP_OPCOES as [string, ...string[]]),
+  data_ativacao: z.string().optional().nullable(),
+  data_inicio_aquecimento: z.string().optional().nullable(),
+  meta_dias_aquecimento: z.number().int().min(1, "Informe ao menos 1 dia."),
+  responsavel: z.string().trim().optional().nullable(),
+  operacao_vinculada: z.string().trim().optional().nullable(),
+  observacoes: z.string().trim().optional().nullable(),
 });
-export type ChipFormValues = z.infer<typeof chipSchema>;
 
-export const rechargeSchema = z.object({
-  recharge_date: z.string().min(1, "Informe a data da recarga."),
-  amount: z.number().min(0, "O valor não pode ser negativo."),
-  carrier: z.enum(["vivo", "claro", "tim", "algar", "outra"]),
-  payment_method: z.string().optional().or(z.literal("")),
-  notes: z.string().optional().or(z.literal("")),
-});
-export type RechargeFormValues = z.infer<typeof rechargeSchema>;
+export type ChipFormValues = z.infer<typeof chipFormSchema>;
 
-export const incidentSchema = z.object({
-  incident_date: z.string().min(1, "Informe a data do incidente."),
-  incident_type: z.enum([
-    "whatsapp_desconectado",
-    "whatsapp_bloqueado",
-    "whatsapp_banido",
-    "numero_sem_sinal",
-    "chip_desativado",
-    "problema_recarga",
-    "outro",
-  ]),
-  reason: z.string().optional().or(z.literal("")),
-  description: z.string().optional().or(z.literal("")),
-  new_status: z.enum(["ativo", "em_aquecimento", "bloqueado", "banido", "em_recuperacao", "desativado"]),
-  action_taken: z.string().optional().or(z.literal("")),
+export const rechargeFormSchema = z.object({
+  data: z.string().min(1, "Informe a data da recarga."),
+  valor: z.coerce.number().min(0, "O valor não pode ser negativo."),
+  observacoes: z.string().trim().optional().nullable(),
 });
-export type IncidentFormValues = z.infer<typeof incidentSchema>;
+
+export const banFormSchema = z.object({
+  data: z.string().min(1, "Informe a data do banimento."),
+  motivo: z.string().trim().optional().nullable(),
+  plataforma: z.string().trim().optional().nullable(),
+  observacoes: z.string().trim().optional().nullable(),
+});
+
+export const recoveryFormSchema = z.object({
+  ban_id: z.string().min(1, "Selecione o banimento a ser recuperado."),
+  data_recuperacao: z.string().min(1, "Informe a data da recuperação."),
+  observacoes: z.string().trim().optional().nullable(),
+});
+
+export const statusChangeFormSchema = z.object({
+  status_novo: z.enum(STATUS_CHIP_OPCOES as [string, ...string[]]),
+  observacao: z.string().trim().optional().nullable(),
+});
+
+export const observationFormSchema = z.object({
+  observacao: z.string().trim().min(1, "Escreva uma observação."),
+});
