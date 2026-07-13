@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Plus } from "lucide-react";
+import { Plus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -26,178 +26,180 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { chipSchema, type ChipFormValues } from "@/lib/validations/chip";
+import { chipFormSchema, type ChipFormValues } from "@/lib/validations/chip";
 import { createChipAction, updateChipAction } from "@/lib/actions/chips";
-import { OPERADORA_LABEL, STATUS_CHIP_LABEL } from "@/lib/constants";
-import type { Chip, Agent } from "@/lib/types";
+import { OPERADORA_LABEL, STATUS_CHIP_LABEL, STATUS_CHIP_OPCOES } from "@/lib/constants";
+import type { Chip, Operadora } from "@/lib/types";
+
+function toFormValues(chip?: Chip, diasAquecimentoPadrao = 21): ChipFormValues {
+  return {
+    nome: chip?.nome ?? "",
+    numero: chip?.numero ?? "",
+    operadora: chip?.operadora ?? "vivo",
+    status: chip?.status ?? "novo",
+    data_ativacao: chip?.data_ativacao ?? "",
+    data_inicio_aquecimento: chip?.data_inicio_aquecimento ?? "",
+    meta_dias_aquecimento: chip?.meta_dias_aquecimento ?? diasAquecimentoPadrao,
+    responsavel: chip?.responsavel ?? "",
+    operacao_vinculada: chip?.operacao_vinculada ?? "",
+    observacoes: chip?.observacoes ?? "",
+  };
+}
 
 export function ChipFormDialog({
-  trigger,
   chip,
-  agents,
+  diasAquecimentoPadrao = 21,
+  trigger,
+  open: controlledOpen,
+  onOpenChange: setControlledOpen,
 }: {
-  trigger: React.ReactNode;
   chip?: Chip;
-  agents: Agent[];
+  diasAquecimentoPadrao?: number;
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = isControlled ? setControlledOpen! : setInternalOpen;
+  const isEdit = Boolean(chip);
 
-  const {
-    register,
-    handleSubmit,
-    control,
-    formState: { errors },
-  } = useForm<ChipFormValues>({
-    resolver: zodResolver(chipSchema),
-    defaultValues: chip
-      ? {
-          name: chip.name,
-          phone_number: chip.phone_number,
-          carrier: chip.carrier,
-          activation_date: chip.activation_date ?? "",
-          status: chip.status,
-          assigned_agent_id: chip.assigned_agent_id ?? "",
-          operation_name: chip.operation_name ?? "",
-          notes: chip.notes ?? "",
-        }
-      : {
-          name: "",
-          phone_number: "",
-          carrier: "vivo",
-          activation_date: new Date().toISOString().slice(0, 10),
-          status: "em_aquecimento",
-          assigned_agent_id: "",
-          operation_name: "",
-          notes: "",
-        },
+  const form = useForm<ChipFormValues>({
+    resolver: zodResolver(chipFormSchema),
+    defaultValues: toFormValues(chip, diasAquecimentoPadrao),
   });
 
-  function onSubmit(values: ChipFormValues) {
-    startTransition(async () => {
-      const result = chip ? await updateChipAction(chip.id, values) : await createChipAction(values);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(chip ? "Chip atualizado." : "Chip adicionado.");
-      setOpen(false);
-    });
+  useEffect(() => {
+    if (open) form.reset(toFormValues(chip, diasAquecimentoPadrao));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  async function onSubmit(values: ChipFormValues) {
+    const result = isEdit && chip ? await updateChipAction(chip.id, values) : await createChipAction(values);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(isEdit ? "Chip atualizado com sucesso." : "Chip criado com sucesso.");
+    setOpen(false);
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button size="sm">
+              <Plus /> Novo chip
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{chip ? "Editar chip" : "Adicionar chip"}</DialogTitle>
-          <DialogDescription>Cadastre os chips e números de WhatsApp usados na operação.</DialogDescription>
+          <DialogTitle>{isEdit ? "Editar chip" : "Novo chip"}</DialogTitle>
+          <DialogDescription>
+            Preencha os dados do chip para acompanhar aquecimento, recargas e status.
+          </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Nome do chip" error={errors.name?.message}>
-              <Input {...register("name")} placeholder="Ex.: Vendas 01" />
-            </Field>
-            <Field label="Número do telefone" error={errors.phone_number?.message}>
-              <Input {...register("phone_number")} placeholder="(11) 99999-9999" />
-            </Field>
-            <Field label="Operadora">
-              <Controller
-                control={control}
-                name="carrier"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(OPERADORA_LABEL).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="nome">Nome</Label>
+              <Input id="nome" placeholder="Ex.: Chip 01 - Vendas" {...form.register("nome")} />
+              {form.formState.errors.nome && (
+                <p className="text-xs text-destructive">{form.formState.errors.nome.message}</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="numero">Número</Label>
+              <Input id="numero" placeholder="(11) 91234-5678" {...form.register("numero")} />
+              {form.formState.errors.numero && (
+                <p className="text-xs text-destructive">{form.formState.errors.numero.message}</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Operadora</Label>
+              <Select
+                value={form.watch("operadora")}
+                onValueChange={(v) => form.setValue("operadora", v as Operadora)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(OPERADORA_LABEL).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select
+                value={form.watch("status")}
+                onValueChange={(v) => form.setValue("status", v as ChipFormValues["status"])}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_CHIP_OPCOES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {STATUS_CHIP_LABEL[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="meta_dias_aquecimento">Meta de dias de aquecimento</Label>
+              <Input
+                id="meta_dias_aquecimento"
+                type="number"
+                min={1}
+                {...form.register("meta_dias_aquecimento", { valueAsNumber: true })}
               />
-            </Field>
-            <Field label="Status">
-              <Controller
-                control={control}
-                name="status"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(STATUS_CHIP_LABEL).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="data_ativacao">Data de ativação</Label>
+              <Input id="data_ativacao" type="date" {...form.register("data_ativacao")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="data_inicio_aquecimento">Início do aquecimento</Label>
+              <Input
+                id="data_inicio_aquecimento"
+                type="date"
+                {...form.register("data_inicio_aquecimento")}
               />
-            </Field>
-            <Field label="Data de ativação">
-              <Input type="date" {...register("activation_date")} />
-            </Field>
-            <Field label="Atendente responsável">
-              <Controller
-                control={control}
-                name="assigned_agent_id"
-                render={({ field }) => (
-                  <Select value={field.value || undefined} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full"><SelectValue placeholder="Nenhum" /></SelectTrigger>
-                    <SelectContent>
-                      {agents.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </Field>
-            <Field label="Produto ou operação" full>
-              <Input {...register("operation_name")} placeholder="Ex.: Vendas do produto X" />
-            </Field>
-            <Field label="Observações" full>
-              <Textarea {...register("notes")} rows={2} />
-            </Field>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="responsavel">Responsável</Label>
+              <Input id="responsavel" placeholder="Nome do responsável" {...form.register("responsavel")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="operacao_vinculada">Operação vinculada</Label>
+              <Input id="operacao_vinculada" placeholder="Ex.: Operação A" {...form.register("operacao_vinculada")} />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="observacoes">Observações</Label>
+              <Textarea id="observacoes" rows={3} {...form.register("observacoes")} />
+            </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={isPending}>
-              {isPending && <Loader2 className="size-4 animate-spin" />}
-              {chip ? "Salvar alterações" : "Adicionar chip"}
+            <Button type="submit" disabled={form.formState.isSubmitting}>
+              {form.formState.isSubmitting && <Loader2 className="size-4 animate-spin" />}
+              {isEdit ? "Salvar alterações" : "Criar chip"}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Field({
-  label,
-  error,
-  children,
-  full,
-}: {
-  label: string;
-  error?: string;
-  children: React.ReactNode;
-  full?: boolean;
-}) {
-  return (
-    <div className={`space-y-1.5 ${full ? "col-span-2" : ""}`}>
-      <Label>{label}</Label>
-      {children}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
-  );
-}
-
-export function NewChipTrigger() {
-  return (
-    <Button className="gap-1.5">
-      <Plus className="size-4" /> Adicionar chip
-    </Button>
   );
 }

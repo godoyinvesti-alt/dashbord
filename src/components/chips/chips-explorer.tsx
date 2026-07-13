@@ -1,146 +1,161 @@
-"use client";
+import Link from "next/link";
+import { Smartphone } from "lucide-react";
 
-import { useState } from "react";
-import { AlertTriangle, Smartphone } from "lucide-react";
-
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/dashboard/page-header";
 import { EmptyState } from "@/components/dashboard/empty-state";
-import { WhatsAppButton } from "@/components/leads/whatsapp-button";
-import { StatusChipBadge, AlertaRecargaBadge } from "@/components/chips/chip-badges";
-import { RegisterRechargeDialog } from "@/components/chips/recharge-dialog";
-import { RegisterIncidentDialog } from "@/components/chips/incident-dialog";
-import { ChipDetailDrawer } from "@/components/chips/chip-detail-drawer";
-import { formatDate, formatPhoneDisplay, formatNumber } from "@/lib/format";
-import { OPERADORA_LABEL } from "@/lib/constants";
-import { NIVEL_ALERTA_ROW_CLASS, mensagemAlertaChip } from "@/lib/chip-alerts";
-import { fetchChipTimelineAction } from "@/lib/actions/chips";
+import { SearchInput } from "@/components/shared/search-input";
+import { SelectFilter } from "@/components/shared/select-filter";
+import { PaginationControls } from "@/components/shared/pagination-controls";
+import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Progress } from "@/components/ui/progress";
+import { ChipFormDialog } from "@/components/chips/chip-form-dialog";
+import { ChipRowActions } from "@/components/chips/chip-row-actions";
+import { StatusChipBadge, OperadoraBadge, NivelAlertaBadge } from "@/components/chips/chip-badges";
+import { NIVEL_ALERTA_ROW_CLASS } from "@/lib/chip-calc";
+import { STATUS_CHIP_LABEL, STATUS_CHIP_OPCOES } from "@/lib/constants";
+import { formatDate, formatBRL } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { ChipWithRelations } from "@/lib/data/chips";
-import type { Agent } from "@/lib/types";
+import type { ChipComputed } from "@/lib/types";
 
 export function ChipsExplorer({
   chips,
-  agents,
+  total,
+  page,
+  totalPages,
+  diasAquecimentoPadrao,
 }: {
-  chips: ChipWithRelations[];
-  agents: Agent[];
+  chips: ChipComputed[];
+  total: number;
+  page: number;
+  totalPages: number;
+  diasAquecimentoPadrao: number;
 }) {
-  const [activeChip, setActiveChip] = useState<ChipWithRelations | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  if (chips.length === 0) {
-    return (
-      <EmptyState
-        icon={Smartphone}
-        title="Nenhum chip cadastrado"
-        description="Adicione seus chips e números de WhatsApp para começar a monitorar recargas e incidentes."
-      />
-    );
-  }
-
   return (
-    <div className="overflow-hidden rounded-xl border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Chip</TableHead>
-            <TableHead>Operadora</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Última recarga</TableHead>
-            <TableHead>Alerta</TableHead>
-            <TableHead>Quedas</TableHead>
-            <TableHead>Responsável</TableHead>
-            <TableHead className="text-right">Ações</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {chips.map((chip) => {
-            const mensagem = mensagemAlertaChip(chip);
-            return (
-              <TableRow
-                key={chip.id}
-                className={cn("cursor-pointer", NIVEL_ALERTA_ROW_CLASS[chip.nivel_alerta])}
-                onClick={() => {
-                  setActiveChip(chip);
-                  setDrawerOpen(true);
-                }}
-              >
-                <TableCell>
-                  <p className="text-sm font-medium">{chip.name}</p>
-                  <p className="text-xs text-muted-foreground">{formatPhoneDisplay(chip.phone_number)}</p>
-                </TableCell>
-                <TableCell className="text-sm">{OPERADORA_LABEL[chip.carrier]}</TableCell>
-                <TableCell><StatusChipBadge value={chip.status} /></TableCell>
-                <TableCell className="text-sm">
-                  {chip.last_recharge_date ? (
-                    <>
-                      {formatDate(chip.last_recharge_date)}
-                      <p className="text-xs text-muted-foreground">
-                        há {chip.dias_desde_recarga} dia{chip.dias_desde_recarga === 1 ? "" : "s"}
-                      </p>
-                    </>
-                  ) : (
-                    <span className="text-destructive">Nenhuma recarga registrada</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <AlertaRecargaBadge value={chip.nivel_alerta} />
-                    {mensagem && (
-                      <span title={mensagem}>
-                        <AlertTriangle className="size-3.5 text-destructive" />
-                      </span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className="text-sm tabular-nums">{formatNumber(chip.incident_count)}</TableCell>
-                <TableCell className="text-sm">
-                  {chip.agente_nome ?? <span className="text-warning-foreground">Sem responsável</span>}
-                </TableCell>
-                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex justify-end gap-1.5">
-                    <WhatsAppButton phone={chip.phone_number} showLabel={false} size="icon" />
-                    <RegisterRechargeDialog
-                      chipId={chip.id}
-                      defaultCarrier={chip.carrier}
-                      trigger={
-                        <Button size="icon" variant="ghost" className="size-7">
-                          <span className="sr-only">Registrar recarga</span>⚡
-                        </Button>
-                      }
-                    />
-                    <RegisterIncidentDialog
-                      chipId={chip.id}
-                      currentStatus={chip.status}
-                      trigger={
-                        <Button size="icon" variant="ghost" className="size-7 text-destructive">
-                          <AlertTriangle className="size-3.5" />
-                        </Button>
-                      }
-                    />
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-
-      <ChipDetailDrawer
-        chip={activeChip}
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        agents={agents}
-        fetchTimeline={fetchChipTimelineAction}
+    <div>
+      <PageHeader
+        title="Chips"
+        description="Gerencie chips, acompanhe aquecimento, recargas e banimentos."
+        actions={<ChipFormDialog diasAquecimentoPadrao={diasAquecimentoPadrao} />}
       />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <SearchInput placeholder="Buscar por nome, número ou responsável..." className="w-full sm:w-72" />
+        <SelectFilter
+          paramName="status"
+          placeholder="Status"
+          options={STATUS_CHIP_OPCOES.map((s) => ({ value: s, label: STATUS_CHIP_LABEL[s] }))}
+        />
+      </div>
+
+      {chips.length === 0 ? (
+        <EmptyState
+          icon={Smartphone}
+          title="Nenhum chip encontrado"
+          description="Cadastre seu primeiro chip para começar a acompanhar aquecimento e recargas."
+          action={<ChipFormDialog diasAquecimentoPadrao={diasAquecimentoPadrao} />}
+        />
+      ) : (
+        <>
+          {/* Desktop: tabela */}
+          <Card className="hidden py-0 md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Chip</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Aquecimento</TableHead>
+                  <TableHead>Recarga</TableHead>
+                  <TableHead>Responsável</TableHead>
+                  <TableHead>Operação</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {chips.map((chip) => (
+                  <TableRow key={chip.id} className={cn(NIVEL_ALERTA_ROW_CLASS[chip.nivel_alerta_recarga])}>
+                    <TableCell>
+                      <Link href={`/dashboard/chips/${chip.id}`} className="block">
+                        <p className="font-medium hover:underline">{chip.nome}</p>
+                        <p className="text-xs text-muted-foreground">{chip.numero}</p>
+                      </Link>
+                      <div className="mt-1">
+                        <OperadoraBadge operadora={chip.operadora} />
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <StatusChipBadge status={chip.status} />
+                    </TableCell>
+                    <TableCell className="min-w-36">
+                      {chip.progresso_aquecimento !== null ? (
+                        <div className="space-y-1">
+                          <Progress value={chip.progresso_aquecimento} className="h-1.5" />
+                          <p className="text-xs text-muted-foreground">
+                            {chip.dias_aquecido}/{chip.meta_dias_aquecimento} dias
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <p className="text-xs">{formatDate(chip.data_ultima_recarga)}</p>
+                        <NivelAlertaBadge nivel={chip.nivel_alerta_recarga} />
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">{chip.responsavel || "—"}</TableCell>
+                    <TableCell className="text-sm">{chip.operacao_vinculada || "—"}</TableCell>
+                    <TableCell>
+                      <ChipRowActions chip={chip} diasAquecimentoPadrao={diasAquecimentoPadrao} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="px-4">
+              <PaginationControls page={page} totalPages={totalPages} totalItems={total} pageSize={20} />
+            </div>
+          </Card>
+
+          {/* Mobile: cards */}
+          <div className="space-y-3 md:hidden">
+            {chips.map((chip) => (
+              <Card key={chip.id} className={cn("py-4", NIVEL_ALERTA_ROW_CLASS[chip.nivel_alerta_recarga])}>
+                <CardContent className="space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link href={`/dashboard/chips/${chip.id}`} className="min-w-0">
+                      <p className="truncate font-medium hover:underline">{chip.nome}</p>
+                      <p className="text-xs text-muted-foreground">{chip.numero}</p>
+                    </Link>
+                    <ChipRowActions chip={chip} diasAquecimentoPadrao={diasAquecimentoPadrao} />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusChipBadge status={chip.status} />
+                    <OperadoraBadge operadora={chip.operadora} />
+                    <NivelAlertaBadge nivel={chip.nivel_alerta_recarga} />
+                  </div>
+                  {chip.progresso_aquecimento !== null && (
+                    <div className="space-y-1">
+                      <Progress value={chip.progresso_aquecimento} className="h-1.5" />
+                      <p className="text-xs text-muted-foreground">
+                        Aquecimento: {chip.dias_aquecido}/{chip.meta_dias_aquecimento} dias
+                      </p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <p>Última recarga: {formatDate(chip.data_ultima_recarga)}</p>
+                    <p>Valor: {chip.valor_ultima_recarga ? formatBRL(chip.valor_ultima_recarga) : "—"}</p>
+                    <p>Responsável: {chip.responsavel || "—"}</p>
+                    <p>Operação: {chip.operacao_vinculada || "—"}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            <PaginationControls page={page} totalPages={totalPages} totalItems={total} pageSize={20} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

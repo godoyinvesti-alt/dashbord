@@ -1,12 +1,13 @@
 import { z } from "zod";
+import { CATEGORIA_DESPESA_OPCOES } from "@/lib/constants";
 
-export const expenseSchema = z.object({
-  descricao: z.string().min(2, "Informe a descrição da despesa."),
-  categoria: z.enum(["trafego_pago", "ferramentas", "funcionarios", "comissoes", "plataforma", "reembolsos", "outros"]),
-  valor: z.number().positive("Informe um valor maior que zero."),
-  data: z.string().min(1, "Informe a data."),
-  recorrente: z.boolean(),
-  observacoes: z.string().optional().or(z.literal("")),
+export const expenseFormSchema = z.object({
+  descricao: z.string().trim().min(1, "Informe uma descrição para a despesa."),
+  valor: z.number().min(0, "O valor não pode ser negativo."),
+  categoria: z.enum(CATEGORIA_DESPESA_OPCOES as [string, ...string[]]),
+  data: z.string().min(1, "Informe a data da despesa."),
+  operacao_vinculada: z.string().trim().optional().nullable(),
+  observacoes: z.string().trim().optional().nullable(),
 });
 
-export type ExpenseFormValues = z.infer<typeof expenseSchema>;
+export type ExpenseFormValues = z.infer<typeof expenseFormSchema>;

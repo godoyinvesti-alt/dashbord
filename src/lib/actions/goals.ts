@@ -2,88 +2,39 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { requireContext } from "@/lib/workspace";
-import { goalSchema, type GoalFormValues } from "@/lib/validations/goal";
-import type { ActionResult } from "@/lib/actions/leads";
+import { currentMonthKey } from "@/lib/data/goals";
 
-export async function createGoalAction(values: GoalFormValues): Promise<ActionResult> {
-  const parsed = goalSchema.safeParse(values);
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
-  const ctx = await requireContext();
-  const supabase = await createClient();
-  const v = parsed.data;
-
-  if (new Date(v.periodo_fim) < new Date(v.periodo_inicio)) {
-    return { error: "A data de fim não pode ser anterior à data de início." };
-  }
-
-  const { data, error } = await supabase
-    .from("goals")
-    .insert({
-      workspace_id: ctx.workspace.id,
-      tipo: v.tipo,
-      periodo_inicio: v.periodo_inicio,
-      periodo_fim: v.periodo_fim,
-      valor_meta: v.valor_meta,
-      produto_id: v.produto_id || null,
-      agent_id: v.agent_id || null,
-    })
-    .select("id")
-    .single();
-
-  if (error) return { error: "Não foi possível criar a meta." };
-
-  await supabase.rpc("log_activity", {
-    p_workspace_id: ctx.workspace.id,
-    p_acao: "meta_criada",
-    p_entidade: "goals",
-    p_entidade_id: data.id,
-  });
-
-  revalidatePath("/dashboard/metas");
-  revalidatePath("/dashboard");
-  return { success: true, id: data.id };
+export interface ActionResult {
+  error?: string;
+  success?: boolean;
 }
 
-export async function updateGoalAction(id: string, values: GoalFormValues): Promise<ActionResult> {
-  const parsed = goalSchema.safeParse(values);
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
-  const ctx = await requireContext();
+export async function upsertCurrentGoalAction(values: {
+  meta_faturamento: number;
+  meta_lucro: number;
+  meta_vendas: number;
+}): Promise<ActionResult> {
   const supabase = await createClient();
-  const v = parsed.data;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada. Faça login novamente." };
 
-  const { error } = await supabase
-    .from("goals")
-    .update({
-      tipo: v.tipo,
-      periodo_inicio: v.periodo_inicio,
-      periodo_fim: v.periodo_fim,
-      valor_meta: v.valor_meta,
-      produto_id: v.produto_id || null,
-      agent_id: v.agent_id || null,
-    })
-    .eq("id", id)
-    .eq("workspace_id", ctx.workspace.id);
+  const { error } = await supabase.from("goals").upsert(
+    {
+      owner_id: user.id,
+      mes: currentMonthKey(),
+      meta_faturamento: values.meta_faturamento,
+      meta_lucro: values.meta_lucro,
+      meta_vendas: values.meta_vendas,
+    },
+    { onConflict: "owner_id,mes" }
+  );
 
-  if (error) return { error: "Não foi possível atualizar a meta." };
+  if (error) return { error: "Não foi possível salvar as metas do mês." };
 
-  await supabase.rpc("log_activity", {
-    p_workspace_id: ctx.workspace.id,
-    p_acao: "meta_alterada",
-    p_entidade: "goals",
-    p_entidade_id: id,
-  });
-
-  revalidatePath("/dashboard/metas");
   revalidatePath("/dashboard");
-  return { success: true, id };
-}
-
-export async function deleteGoalAction(id: string): Promise<ActionResult> {
-  const ctx = await requireContext();
-  const supabase = await createClient();
-  const { error } = await supabase.from("goals").delete().eq("id", id).eq("workspace_id", ctx.workspace.id);
-  if (error) return { error: "Não foi possível excluir a meta." };
-  revalidatePath("/dashboard/metas");
+  revalidatePath("/dashboard/financeiro");
+  revalidatePath("/dashboard/configuracoes");
   return { success: true };
 }

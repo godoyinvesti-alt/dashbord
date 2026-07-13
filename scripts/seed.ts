@@ -1,5 +1,5 @@
 /**
- * Script de seed de dados de demonstração para o X1 Control.
+ * Script de seed de dados de demonstração para o Controle X1.
  *
  * Uso:
  *   npm run seed
@@ -8,14 +8,12 @@
  *   NEXT_PUBLIC_SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
  *
- * O script cria (ou reaproveita) um usuário de demonstração, um
- * workspace de exemplo e popula todas as tabelas com dados realistas
- * em português, incluindo os cenários de alerta de chips necessários
- * para validar as cores verde/amarelo/vermelho/vermelho-escuro.
+ * Cria (ou reaproveita) um usuário de demonstração e popula chips (cobrindo
+ * todos os status e cenários de alerta de recarga/aquecimento/banimento),
+ * ativos de contingência, vendas, despesas e a meta do mês atual.
  */
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
-import { randomUUID } from "crypto";
 
 config({ path: ".env.local" });
 
@@ -33,9 +31,8 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-const DEMO_EMAIL = "demo@x1control.com.br";
+const DEMO_EMAIL = "demo@controlex1.com.br";
 const DEMO_SENHA = "demo123456";
-const DEMO_SLUG = "loja-demo-x1";
 
 function daysAgo(n: number) {
   const d = new Date();
@@ -57,9 +54,9 @@ const NOMES = [
   "Fábio Lima", "Gabriela Rocha", "Henrique Melo", "Isabela Martins", "João Pereira",
   "Karina Duarte", "Lucas Barbosa", "Mariana Ribeiro", "Nathan Carvalho", "Otávio Nunes",
   "Patrícia Gomes", "Rafael Teixeira", "Sabrina Dias", "Thiago Correia", "Vanessa Moura",
-  "William Cardoso", "Yasmin Freitas", "Zeca Monteiro", "Beatriz Andrade", "Caio Vieira",
-  "Débora Farias", "Eduardo Pinto", "Fernanda Azevedo", "Gustavo Reis", "Helena Batista",
 ];
+
+const RESPONSAVEIS = ["Camila Rodrigues", "Pedro Alves", "Juliana Castro", "Marcos Vinícius", "Renata Silva"];
 
 async function upsertDemoUser(): Promise<string> {
   const { data: list } = await supabase.auth.admin.listUsers();
@@ -83,376 +80,215 @@ async function upsertDemoUser(): Promise<string> {
   return data.user.id;
 }
 
-async function upsertWorkspace(userId: string): Promise<string> {
-  const { data: existing } = await supabase.from("workspaces").select("id").eq("slug", DEMO_SLUG).maybeSingle();
-  if (existing) {
-    console.log("Workspace de demonstração já existe, reutilizando.");
-    return existing.id;
-  }
-
-  const { data: workspace, error } = await supabase
-    .from("workspaces")
-    .insert({ nome: "Loja Demo X1", slug: DEMO_SLUG, meta_faturamento_mensal: 30000 })
-    .select("id")
-    .single();
-  if (error || !workspace) throw new Error(`Erro ao criar workspace: ${error?.message}`);
-
-  await supabase.from("workspace_members").insert({
-    workspace_id: workspace.id,
-    user_id: userId,
-    papel: "administrador",
-  });
-
-  const stageNames = [
-    "Lead recebido", "Primeira mensagem enviada", "Lead respondeu",
-    "Apresentação enviada", "Oferta apresentada", "PIX enviado",
-    "Aguardando pagamento", "Pagamento confirmado", "Produto entregue",
-    "Upsell oferecido", "Upsell comprado",
+async function clearPreviousData(ownerId: string) {
+  const tables = [
+    "alerts",
+    "chip_status_history",
+    "chip_bans",
+    "chip_recharges",
+    "sales",
+    "expenses",
+    "goals",
+    "contingency_assets",
+    "chips",
   ];
-  await supabase.from("funnel_stages").insert(
-    stageNames.map((nome, i) => ({ workspace_id: workspace.id, nome, ordem: i, padrao: true }))
-  );
-
-  await supabase.from("settings").insert({ workspace_id: workspace.id });
-
-  console.log("Workspace de demonstração criado.");
-  return workspace.id;
+  for (const table of tables) {
+    await supabase.from(table).delete().eq("owner_id", ownerId);
+  }
 }
 
 async function seed() {
   console.log("Iniciando seed de dados de demonstração...\n");
 
   const userId = await upsertDemoUser();
-  const workspaceId = await upsertWorkspace(userId);
+  await clearPreviousData(userId);
 
-  const { data: stages } = await supabase
-    .from("funnel_stages")
-    .select("id, nome, ordem")
-    .eq("workspace_id", workspaceId)
-    .order("ordem");
-  if (!stages || stages.length === 0) throw new Error("Etapas do funil não encontradas.");
-
-  // ---------------------------------------------------------------------
-  // Produtos
-  // ---------------------------------------------------------------------
-  const produtosSeed = [
-    { nome: "Curso Vendas no WhatsApp", categoria: "Curso", preco: 97, custo: 8 },
-    { nome: "Ebook Copywriting Persuasivo", categoria: "Ebook", preco: 47, custo: 3 },
-    { nome: "Mentoria em Grupo - Tráfego Pago", categoria: "Mentoria", preco: 497, custo: 40 },
-    { nome: "Pack de Templates de Anúncios", categoria: "Template", preco: 27, custo: 2 },
-    { nome: "Curso Avançado de Funis de Venda", categoria: "Curso", preco: 197, custo: 15 },
-    { nome: "Consultoria Individual 1h", categoria: "Consultoria", preco: 350, custo: 0 },
-  ];
-  const { data: produtos } = await supabase
-    .from("products")
-    .insert(
-      produtosSeed.map((p) => ({
-        workspace_id: workspaceId,
-        nome: p.nome,
-        categoria: p.categoria,
-        descricao: `${p.nome} — produto digital de demonstração.`,
-        preco_principal: p.preco,
-        custo: p.custo,
-        status: "ativo",
-        link_entrega: "https://exemplo.com/entrega",
-      }))
-    )
-    .select("id, nome, preco_principal");
-  if (!produtos) throw new Error("Falha ao inserir produtos.");
-  console.log(`✔ ${produtos.length} produtos criados`);
+  await supabase
+    .from("settings")
+    .update({
+      nome_negocio: "Operação Demo X1",
+      dias_aquecimento_padrao: 21,
+      dias_alerta_recarga: 30,
+      minimo_chips_ativos: 5,
+      limite_despesas_mensal: 9000,
+      notificacoes_ativas: true,
+    })
+    .eq("owner_id", userId);
+  console.log("✔ Configurações atualizadas");
 
   // ---------------------------------------------------------------------
-  // Agentes
-  // ---------------------------------------------------------------------
-  const agentesSeed = [
-    { nome: "Camila Rodrigues", papel: "gestor" as const },
-    { nome: "Pedro Alves", papel: "atendente" as const },
-    { nome: "Juliana Castro", papel: "atendente" as const },
-    { nome: "Marcos Vinícius", papel: "atendente" as const },
-    { nome: "Renata Silva", papel: "financeiro" as const },
-  ];
-  const { data: agentes } = await supabase
-    .from("agents")
-    .insert(
-      agentesSeed.map((a) => ({
-        workspace_id: workspaceId,
-        nome: a.nome,
-        email: `${a.nome.split(" ")[0].toLowerCase()}@lojademo.com.br`,
-        whatsapp: `55119${randomInt(70000000, 99999999)}`,
-        papel: a.papel,
-        status: "ativo",
-      }))
-    )
-    .select("id, nome");
-  if (!agentes) throw new Error("Falha ao inserir agentes.");
-  console.log(`✔ ${agentes.length} atendentes criados`);
-
-  // ---------------------------------------------------------------------
-  // Campanhas, conjuntos de anúncios e criativos
-  // ---------------------------------------------------------------------
-  const campanhasSeed = [
-    { nome: "Campanha Black Friday", plataforma: "meta_ads" as const, investido: 3500 },
-    { nome: "Campanha Lançamento Curso", plataforma: "meta_ads" as const, investido: 2200 },
-    { nome: "Campanha TikTok Alcance", plataforma: "tiktok_ads" as const, investido: 1400 },
-    { nome: "Campanha Google Pesquisa", plataforma: "google_ads" as const, investido: 900 },
-  ];
-  const { data: campanhas } = await supabase
-    .from("campaigns")
-    .insert(
-      campanhasSeed.map((c) => ({
-        workspace_id: workspaceId,
-        nome: c.nome,
-        plataforma: c.plataforma,
-        valor_investido: c.investido,
-        data_inicio: isoDate(daysAgo(45)),
-        data_fim: isoDate(daysAgo(1)),
-      }))
-    )
-    .select("id, nome");
-  if (!campanhas) throw new Error("Falha ao inserir campanhas.");
-  console.log(`✔ ${campanhas.length} campanhas criadas`);
-
-  const criativosSeed = [
-    { nome: "Criativo 01 - Depoimento", hook: "Veja como triplicamos as vendas em 30 dias" },
-    { nome: "Criativo 02 - Oferta direta", hook: "Só hoje: 50% de desconto" },
-    { nome: "Criativo 03 - Dor do cliente", hook: "Cansado de vender pouco no WhatsApp?" },
-    { nome: "Criativo 04 - Prova social", hook: "Mais de 3.000 alunos satisfeitos" },
-    { nome: "Criativo 05 - Curiosidade", hook: "O segredo que ninguém te conta sobre tráfego" },
-  ];
-  const criativosRows: { workspace_id: string; campaign_id: string; nome: string; hook: string; valor_investido: number }[] = [];
-  for (const c of criativosSeed) {
-    criativosRows.push({
-      workspace_id: workspaceId,
-      campaign_id: pick(campanhas).id,
-      nome: c.nome,
-      hook: c.hook,
-      valor_investido: randomInt(200, 1200),
-    });
-  }
-  const { data: criativos } = await supabase.from("creatives").insert(criativosRows).select("id, nome, campaign_id");
-  if (!criativos) throw new Error("Falha ao inserir criativos.");
-  console.log(`✔ ${criativos.length} criativos criados`);
-
-  // ---------------------------------------------------------------------
-  // Chips — cobrindo todos os estados de alerta
+  // Chips — cobrindo todos os status e cenários de alerta
   // ---------------------------------------------------------------------
   interface ChipSeed {
-    name: string;
-    status: "ativo" | "em_aquecimento" | "bloqueado" | "banido" | "em_recuperacao" | "desativado";
+    nome: string;
+    status:
+      | "novo"
+      | "em_aquecimento"
+      | "aquecido"
+      | "ativo"
+      | "em_observacao"
+      | "instavel"
+      | "banido"
+      | "em_recuperacao"
+      | "inativo"
+      | "descartado";
+    diasInicioAquecimento: number | null;
+    metaDias: number;
     diasUltimaRecarga: number | null;
-    agentIndex: number | null;
-    incidentes: number;
+    banimentos: number;
+    quedas: number;
   }
+
   const chipsSeed: ChipSeed[] = [
-    { name: "Vendas 01", status: "ativo", diasUltimaRecarga: 4, agentIndex: 1, incidentes: 0 },
-    { name: "Vendas 02", status: "ativo", diasUltimaRecarga: 2, agentIndex: 2, incidentes: 0 },
-    { name: "Vendas 03", status: "ativo", diasUltimaRecarga: 25, agentIndex: 1, incidentes: 1 },
-    { name: "Vendas 04", status: "ativo", diasUltimaRecarga: 28, agentIndex: 3, incidentes: 0 },
-    { name: "Vendas 05", status: "ativo", diasUltimaRecarga: 37, agentIndex: 2, incidentes: 1 },
-    { name: "Vendas 06", status: "em_aquecimento", diasUltimaRecarga: 45, agentIndex: null, incidentes: 2 },
-    { name: "Vendas 07", status: "em_aquecimento", diasUltimaRecarga: null, agentIndex: 3, incidentes: 0 },
-    { name: "Suporte 01", status: "bloqueado", diasUltimaRecarga: 12, agentIndex: 1, incidentes: 2 },
-    { name: "Suporte 02", status: "banido", diasUltimaRecarga: 50, agentIndex: 2, incidentes: 3 },
-    { name: "Recuperação 01", status: "em_recuperacao", diasUltimaRecarga: 18, agentIndex: 3, incidentes: 4 },
-    { name: "Backup 01", status: "desativado", diasUltimaRecarga: 70, agentIndex: null, incidentes: 1 },
-    { name: "Vendas 08", status: "ativo", diasUltimaRecarga: 8, agentIndex: 1, incidentes: 0 },
+    { nome: "Chip Vendas 01", status: "ativo", diasInicioAquecimento: 40, metaDias: 21, diasUltimaRecarga: 3, banimentos: 0, quedas: 0 },
+    { nome: "Chip Vendas 02", status: "ativo", diasInicioAquecimento: 35, metaDias: 21, diasUltimaRecarga: 8, banimentos: 0, quedas: 1 },
+    { nome: "Chip Vendas 03", status: "ativo", diasInicioAquecimento: 60, metaDias: 21, diasUltimaRecarga: 25, banimentos: 0, quedas: 0 },
+    { nome: "Chip Vendas 04", status: "ativo", diasInicioAquecimento: 50, metaDias: 21, diasUltimaRecarga: 35, banimentos: 0, quedas: 2 },
+    { nome: "Chip Vendas 05", status: "ativo", diasInicioAquecimento: 30, metaDias: 21, diasUltimaRecarga: null, banimentos: 0, quedas: 0 },
+    { nome: "Chip Novo 01", status: "novo", diasInicioAquecimento: null, metaDias: 21, diasUltimaRecarga: 1, banimentos: 0, quedas: 0 },
+    { nome: "Chip Aquecendo 01", status: "em_aquecimento", diasInicioAquecimento: 5, metaDias: 21, diasUltimaRecarga: 4, banimentos: 0, quedas: 0 },
+    { nome: "Chip Aquecendo 02", status: "em_aquecimento", diasInicioAquecimento: 18, metaDias: 21, diasUltimaRecarga: 10, banimentos: 0, quedas: 1 },
+    { nome: "Chip Aquecendo 03", status: "em_aquecimento", diasInicioAquecimento: 25, metaDias: 21, diasUltimaRecarga: 12, banimentos: 0, quedas: 0 },
+    { nome: "Chip Aquecido 01", status: "aquecido", diasInicioAquecimento: 22, metaDias: 21, diasUltimaRecarga: 6, banimentos: 0, quedas: 0 },
+    { nome: "Chip Observação 01", status: "em_observacao", diasInicioAquecimento: 45, metaDias: 21, diasUltimaRecarga: 15, banimentos: 1, quedas: 2 },
+    { nome: "Chip Instável 01", status: "instavel", diasInicioAquecimento: 55, metaDias: 21, diasUltimaRecarga: 20, banimentos: 1, quedas: 4 },
+    { nome: "Chip Banido 01", status: "banido", diasInicioAquecimento: 70, metaDias: 21, diasUltimaRecarga: 40, banimentos: 1, quedas: 1 },
+    { nome: "Chip Banido 02", status: "banido", diasInicioAquecimento: 90, metaDias: 21, diasUltimaRecarga: 60, banimentos: 3, quedas: 5 },
+    { nome: "Chip Recuperação 01", status: "em_recuperacao", diasInicioAquecimento: 65, metaDias: 21, diasUltimaRecarga: 22, banimentos: 2, quedas: 3 },
+    { nome: "Chip Inativo 01", status: "inativo", diasInicioAquecimento: 100, metaDias: 21, diasUltimaRecarga: 90, banimentos: 0, quedas: 0 },
+    { nome: "Chip Descartado 01", status: "descartado", diasInicioAquecimento: 120, metaDias: 21, diasUltimaRecarga: null, banimentos: 4, quedas: 6 },
   ];
 
-  const operadoras = ["vivo", "claro", "tim", "algar"] as const;
-  const incidentTypes = [
-    "whatsapp_desconectado", "whatsapp_bloqueado", "whatsapp_banido",
-    "numero_sem_sinal", "problema_recarga", "outro",
-  ] as const;
+  const operadoras = ["vivo", "claro", "tim", "oi", "algar"] as const;
+  const motivosBanimento = [
+    "Spam detectado pela plataforma",
+    "Muitas mensagens em curto período",
+    "Denúncia de usuários",
+    "Uso de conteúdo proibido",
+    "Comportamento automatizado suspeito",
+  ];
+
+  const chipIds: { id: string; nome: string }[] = [];
 
   for (const c of chipsSeed) {
-    const carrier = pick([...operadoras]);
     const { data: chip, error } = await supabase
       .from("chips")
       .insert({
-        workspace_id: workspaceId,
-        name: c.name,
-        phone_number: `5511${randomInt(900000000, 999999999)}`,
-        carrier,
-        activation_date: isoDate(daysAgo(120)),
+        owner_id: userId,
+        nome: c.nome,
+        numero: `+55 11 9${randomInt(1000, 9999)}-${randomInt(1000, 9999)}`,
+        operadora: pick([...operadoras]),
+        data_ativacao: isoDate(daysAgo(c.diasInicioAquecimento ?? 10)),
+        data_inicio_aquecimento: c.diasInicioAquecimento !== null ? isoDate(daysAgo(c.diasInicioAquecimento)) : null,
+        meta_dias_aquecimento: c.metaDias,
+        data_ultima_recarga: c.diasUltimaRecarga !== null ? isoDate(daysAgo(c.diasUltimaRecarga)) : null,
+        valor_ultima_recarga: c.diasUltimaRecarga !== null ? randomInt(15, 40) : null,
+        quantidade_quedas: c.quedas,
         status: c.status,
-        assigned_agent_id: c.agentIndex !== null ? agentes[c.agentIndex].id : null,
-        operation_name: "Vendas WhatsApp",
+        responsavel: pick(RESPONSAVEIS),
+        operacao_vinculada: pick(["Operação A", "Operação B", "Operação C"]),
+        observacoes: "Chip de demonstração criado pelo script de seed.",
       })
-      .select("id")
+      .select("id, nome")
       .single();
+
     if (error || !chip) {
-      console.warn(`Aviso: falha ao criar chip ${c.name}: ${error?.message}`);
+      console.warn(`Aviso: falha ao criar chip ${c.nome}: ${error?.message}`);
       continue;
     }
+    chipIds.push(chip);
 
     if (c.diasUltimaRecarga !== null) {
       await supabase.from("chip_recharges").insert({
-        workspace_id: workspaceId,
+        owner_id: userId,
         chip_id: chip.id,
-        recharge_date: isoDate(daysAgo(c.diasUltimaRecarga)),
-        amount: randomInt(15, 40),
-        carrier,
-        payment_method: "PIX",
-        created_by: userId,
+        data: isoDate(daysAgo(c.diasUltimaRecarga)),
+        valor: randomInt(15, 40),
+        observacoes: "Recarga registrada via seed.",
       });
     }
 
-    for (let i = 0; i < c.incidentes; i++) {
-      await supabase.from("chip_incidents").insert({
-        workspace_id: workspaceId,
+    for (let i = 0; i < c.banimentos; i++) {
+      const diasBan = randomInt(5, 80);
+      const recuperado = i < c.banimentos - 1;
+      await supabase.from("chip_bans").insert({
+        owner_id: userId,
         chip_id: chip.id,
-        incident_type: pick([...incidentTypes]),
-        incident_date: daysAgo(randomInt(1, 40)).toISOString(),
-        reason: "Ocorrência registrada durante uso normal da operação.",
-        new_status: c.status,
-        action_taken: "Chip monitorado e reiniciado.",
-        created_by: userId,
+        data: isoDate(daysAgo(diasBan)),
+        motivo: pick(motivosBanimento),
+        plataforma: "WhatsApp",
+        foi_recuperado: recuperado,
+        data_recuperacao: recuperado ? isoDate(daysAgo(Math.max(diasBan - 5, 0))) : null,
+        observacoes: recuperado ? "Número recuperado após revisão." : null,
       });
     }
-  }
-  console.log(`✔ ${chipsSeed.length} chips criados com histórico de recargas e incidentes`);
 
-  const { data: chips } = await supabase.from("chips").select("id, name").eq("workspace_id", workspaceId);
-  if (!chips) throw new Error("Falha ao carregar chips.");
-
-  // ---------------------------------------------------------------------
-  // Leads
-  // ---------------------------------------------------------------------
-  const temperaturas = ["frio", "morno", "quente", "muito_quente"] as const;
-  const origens = ["meta_ads", "tiktok_ads", "google_ads", "organico", "indicacao"] as const;
-  const statusPagamentos = [
-    "nao_enviado", "pix_enviado", "aguardando_pagamento", "pagamento_confirmado",
-    "pagamento_parcial", "reembolsado", "cancelado",
-  ] as const;
-
-  const leadsRows = [];
-  const totalLeads = 90;
-  for (let i = 0; i < totalLeads; i++) {
-    const nome = pick(NOMES) + (Math.random() > 0.7 ? ` ${randomInt(2, 99)}` : "");
-    const stageIndex = Math.min(
-      Math.floor(Math.pow(Math.random(), 1.6) * stages.length),
-      stages.length - 1
-    );
-    const stage = stages[stageIndex];
-    const produto = pick(produtos);
-    const statusPagamento =
-      stageIndex >= 7 ? pick(["pagamento_confirmado", "pagamento_parcial", "reembolsado"]) : pick([...statusPagamentos]);
-    const valorEsperado = Number(produto.preco_principal);
-    const recebeuPagamento = statusPagamento === "pagamento_confirmado" || statusPagamento === "pagamento_parcial";
-    const valorRecebido = recebeuPagamento
-      ? statusPagamento === "pagamento_parcial"
-        ? Math.round(valorEsperado * 0.5 * 100) / 100
-        : Math.round((valorEsperado + (Math.random() > 0.8 ? 0.1 : 0)) * 100) / 100
-      : 0;
-    const entrada = daysAgo(randomInt(0, 60));
-    const teveInteracao = Math.random() > 0.15;
-
-    leadsRows.push({
-      workspace_id: workspaceId,
-      nome,
-      whatsapp: `5511${randomInt(900000000, 999999999)}`,
-      email: Math.random() > 0.4 ? `${nome.split(" ")[0].toLowerCase()}${randomInt(1, 999)}@email.com` : null,
-      data_entrada: entrada.toISOString(),
-      produto_interesse_id: produto.id,
-      origem: pick([...origens]),
-      campaign_id: pick(campanhas).id,
-      creative_id: pick(criativos).id,
-      agent_id: pick(agentes).id,
-      chip_id: pick(chips).id,
-      funnel_stage_id: stage.id,
-      temperatura: pick([...temperaturas]),
-      ultima_interacao: teveInteracao ? daysAgo(randomInt(0, 10)).toISOString() : null,
-      proximo_followup: Math.random() > 0.5 ? daysAgo(-randomInt(0, 7)).toISOString() : null,
-      valor_esperado: valorEsperado,
-      valor_recebido: valorRecebido,
-      forma_pagamento: recebeuPagamento ? "PIX" : null,
-      status_pagamento: statusPagamento,
-      produto_entregue: statusPagamento === "pagamento_confirmado" && Math.random() > 0.2,
-      upsell_oferecido: statusPagamento === "pagamento_confirmado" && Math.random() > 0.5,
-      upsell_comprado: statusPagamento === "pagamento_confirmado" && Math.random() > 0.75,
-      observacoes: Math.random() > 0.7 ? "Cliente demonstrou muito interesse durante a conversa." : null,
-      tags: Math.random() > 0.6 ? [pick(["vip", "recorrente", "indicação", "promoção"])] : [],
-      created_by: userId,
+    await supabase.from("chip_status_history").insert({
+      owner_id: userId,
+      chip_id: chip.id,
+      status_anterior: null,
+      status_novo: c.status,
+      observacao: "Status inicial definido pelo seed.",
     });
   }
-  const { data: leads } = await supabase.from("leads").insert(leadsRows).select("id, nome, produto_interesse_id, valor_esperado, valor_recebido, status_pagamento, agent_id, chip_id, campaign_id, creative_id");
-  if (!leads) throw new Error("Falha ao inserir leads.");
-  console.log(`✔ ${leads.length} leads criados em diferentes etapas do funil`);
+  console.log(`✔ ${chipIds.length} chips criados com histórico de recargas, banimentos e status`);
 
   // ---------------------------------------------------------------------
-  // Follow-ups
+  // Ativos de contingência
   // ---------------------------------------------------------------------
-  const tiposFollowUp = [
-    "primeiro_contato", "cobranca_pix", "confirmacao_pagamento",
-    "entrega_produto", "upsell", "recompra", "recuperacao",
+  const tiposAtivo = [
+    "whatsapp", "dispositivo", "perfil_facebook", "business_manager",
+    "conta_anuncio", "pagina", "pixel", "dominio", "conta_instagram", "email",
   ] as const;
-  const followUpsRows = [];
-  for (let i = 0; i < 40; i++) {
-    const lead = pick(leads);
-    const atrasado = Math.random() > 0.6;
-    followUpsRows.push({
-      workspace_id: workspaceId,
-      lead_id: lead.id,
-      agent_id: lead.agent_id,
-      tipo: pick([...tiposFollowUp]),
-      data_agendada: atrasado ? daysAgo(randomInt(1, 10)).toISOString() : daysAgo(-randomInt(0, 10)).toISOString(),
-      status: Math.random() > 0.7 ? "concluido" : "pendente",
-      observacoes: "Follow-up gerado automaticamente para demonstração.",
-      created_by: userId,
+  const statusAtivo = ["disponivel", "em_preparacao", "em_uso", "em_observacao", "restrito", "banido", "inativo"] as const;
+
+  const ativosRows = [];
+  for (let i = 0; i < 24; i++) {
+    const tipo = pick([...tiposAtivo]);
+    ativosRows.push({
+      owner_id: userId,
+      nome: `${tipo.replace(/_/g, " ")} ${i + 1}`,
+      tipo,
+      identificador: `ID-${randomInt(10000, 99999)}`,
+      status: pick([...statusAtivo]),
+      responsavel: pick(RESPONSAVEIS),
+      data_ativacao: isoDate(daysAgo(randomInt(5, 200))),
+      operacao_vinculada: pick(["Operação A", "Operação B", "Operação C"]),
+      observacoes: "Ativo de contingência criado pelo script de seed.",
     });
   }
-  await supabase.from("follow_ups").insert(followUpsRows);
-  console.log(`✔ ${followUpsRows.length} follow-ups criados`);
+  await supabase.from("contingency_assets").insert(ativosRows);
+  console.log(`✔ ${ativosRows.length} ativos de contingência criados`);
 
   // ---------------------------------------------------------------------
-  // Vendas
+  // Vendas (últimos 45 dias)
   // ---------------------------------------------------------------------
-  const leadsPagos = leads.filter((l) => Number(l.valor_recebido) > 0);
-  const vendasRows = leadsPagos.map((lead) => {
-    const desconto = Math.random() > 0.85 ? Math.round(Number(lead.valor_esperado) * 0.1 * 100) / 100 : 0;
-    return {
-      workspace_id: workspaceId,
-      lead_id: lead.id,
-      cliente_nome: lead.nome,
-      product_id: lead.produto_interesse_id,
-      preco_original: lead.valor_esperado,
-      valor_esperado: lead.valor_esperado,
-      valor_recebido: lead.valor_recebido,
-      desconto,
-      forma_pagamento: "PIX",
-      data_pagamento: daysAgo(randomInt(0, 55)).toISOString(),
-      campaign_id: lead.campaign_id,
-      creative_id: lead.creative_id,
-      agent_id: lead.agent_id,
-      chip_id: lead.chip_id,
-      upsell: Math.random() > 0.75,
-      status_reembolso: lead.status_pagamento === "reembolsado" ? "reembolsado" : "nenhum",
-      status_entrega: Math.random() > 0.15 ? "entregue" : "pendente",
-      created_by: userId,
-    };
-  });
-  // Vendas extras sem lead vinculado (ex.: vendas registradas manualmente)
-  for (let i = 0; i < 8; i++) {
-    const produto = pick(produtos);
+  const produtos = [
+    "Curso Vendas no WhatsApp", "Ebook Copywriting Persuasivo", "Mentoria em Grupo",
+    "Pack de Templates de Anúncios", "Curso Avançado de Funis", "Consultoria Individual",
+  ];
+  const formasPagamento = ["PIX", "Cartão de crédito", "Cartão de débito", "Boleto", "Dinheiro"];
+  const origens = ["Instagram", "Meta Ads", "TikTok Ads", "Indicação", "Google", "Orgânico"];
+
+  const vendasRows = [];
+  for (let i = 0; i < 130; i++) {
+    const dias = randomInt(0, 45);
+    const valor = pick([47, 97, 127, 197, 297, 497]);
+    const taxas = Math.round(valor * 0.05 * 100) / 100;
+    const reembolso = Math.random() > 0.92 ? valor : 0;
     vendasRows.push({
-      workspace_id: workspaceId,
-      lead_id: null as unknown as string,
-      cliente_nome: pick(NOMES),
-      product_id: produto.id,
-      preco_original: Number(produto.preco_principal),
-      valor_esperado: Number(produto.preco_principal),
-      valor_recebido: Number(produto.preco_principal),
-      desconto: 0,
-      forma_pagamento: pick(["PIX", "Cartão de crédito", "Boleto"]),
-      data_pagamento: daysAgo(randomInt(0, 30)).toISOString(),
-      campaign_id: pick(campanhas).id,
-      creative_id: pick(criativos).id,
-      agent_id: pick(agentes).id,
-      chip_id: pick(chips).id,
-      upsell: false,
-      status_reembolso: "nenhum",
-      status_entrega: "entregue",
-      created_by: userId,
+      owner_id: userId,
+      data: isoDate(daysAgo(dias)),
+      valor_recebido: valor,
+      produto: pick(produtos),
+      cliente: pick(NOMES),
+      chip_id: chipIds.length > 0 ? pick(chipIds).id : null,
+      vendedor: pick(RESPONSAVEIS),
+      origem_lead: pick(origens),
+      forma_pagamento: pick(formasPagamento),
+      taxas,
+      reembolso,
+      observacoes: null,
     });
   }
   await supabase.from("sales").insert(vendasRows);
@@ -461,63 +297,48 @@ async function seed() {
   // ---------------------------------------------------------------------
   // Despesas
   // ---------------------------------------------------------------------
-  const despesasSeed: { descricao: string; categoria: string; valor: number }[] = [
-    { descricao: "Anúncios Meta Ads", categoria: "trafego_pago", valor: 3500 },
-    { descricao: "Anúncios TikTok Ads", categoria: "trafego_pago", valor: 1400 },
-    { descricao: "Assinatura CRM", categoria: "ferramentas", valor: 197 },
-    { descricao: "Assinatura de disparo em massa", categoria: "ferramentas", valor: 149 },
-    { descricao: "Comissão equipe de vendas", categoria: "comissoes", valor: 890 },
-    { descricao: "Salário atendente", categoria: "funcionarios", valor: 1800 },
-    { descricao: "Taxa gateway de pagamento", categoria: "plataforma", valor: 210 },
-    { descricao: "Reembolso cliente insatisfeito", categoria: "reembolsos", valor: 97 },
-    { descricao: "Recargas de chips", categoria: "outros", valor: 180 },
+  const despesasSeed: { descricao: string; categoria: string; valor: number; diasAtras: number }[] = [
+    { descricao: "Anúncios Meta Ads", categoria: "trafego_pago", valor: 2800, diasAtras: 3 },
+    { descricao: "Anúncios TikTok Ads", categoria: "trafego_pago", valor: 1200, diasAtras: 6 },
+    { descricao: "Assinatura CRM", categoria: "ferramentas", valor: 197, diasAtras: 10 },
+    { descricao: "Assinatura de disparo em massa", categoria: "ferramentas", valor: 149, diasAtras: 12 },
+    { descricao: "Compra de chips novos", categoria: "chips", valor: 340, diasAtras: 8 },
+    { descricao: "Recargas do mês", categoria: "recargas", valor: 480, diasAtras: 2 },
+    { descricao: "Comissão equipe de vendas", categoria: "comissoes", valor: 890, diasAtras: 5 },
+    { descricao: "Salário atendente", categoria: "funcionarios", valor: 1800, diasAtras: 15 },
+    { descricao: "Ferramenta de automação", categoria: "ferramentas", valor: 99, diasAtras: 20 },
+    { descricao: "Recargas emergenciais", categoria: "recargas", valor: 210, diasAtras: 25 },
+    { descricao: "Despesas administrativas", categoria: "outros", valor: 260, diasAtras: 18 },
   ];
-  const despesasRows = despesasSeed.map((d) => ({
-    workspace_id: workspaceId,
-    descricao: d.descricao,
-    categoria: d.categoria,
-    valor: d.valor,
-    data: isoDate(daysAgo(randomInt(0, 40))),
-    recorrente: ["ferramentas", "funcionarios"].includes(d.categoria),
-    created_by: userId,
-  }));
-  await supabase.from("expenses").insert(despesasRows);
-  console.log(`✔ ${despesasRows.length} despesas criadas`);
+  await supabase.from("expenses").insert(
+    despesasSeed.map((d) => ({
+      owner_id: userId,
+      descricao: d.descricao,
+      valor: d.valor,
+      categoria: d.categoria,
+      data: isoDate(daysAgo(d.diasAtras)),
+      operacao_vinculada: pick(["Operação A", "Operação B", "Operação C"]),
+      observacoes: null,
+    }))
+  );
+  console.log(`✔ ${despesasSeed.length} despesas criadas`);
 
   // ---------------------------------------------------------------------
-  // Metas
+  // Meta do mês atual
   // ---------------------------------------------------------------------
-  const hoje = new Date();
-  const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
-  await supabase.from("goals").insert([
-    {
-      workspace_id: workspaceId,
-      tipo: "faturamento_mensal",
-      periodo_inicio: isoDate(inicioMes),
-      periodo_fim: isoDate(fimMes),
-      valor_meta: 30000,
-    },
-    {
-      workspace_id: workspaceId,
-      tipo: "numero_vendas",
-      periodo_inicio: isoDate(inicioMes),
-      periodo_fim: isoDate(fimMes),
-      valor_meta: 80,
-    },
-    {
-      workspace_id: workspaceId,
-      tipo: "conversao",
-      periodo_inicio: isoDate(inicioMes),
-      periodo_fim: isoDate(fimMes),
-      valor_meta: 8,
-    },
-  ]);
-  console.log("✔ 3 metas criadas");
+  const inicioMes = new Date();
+  inicioMes.setDate(1);
+  await supabase.from("goals").insert({
+    owner_id: userId,
+    mes: isoDate(inicioMes),
+    meta_faturamento: 25000,
+    meta_lucro: 12000,
+    meta_vendas: 150,
+  });
+  console.log("✔ Meta do mês atual criada");
 
   console.log("\nSeed concluído com sucesso!");
   console.log(`Acesse com o e-mail: ${DEMO_EMAIL} e senha: ${DEMO_SENHA}`);
-  console.log(`ID de referência do seed: ${randomUUID()}`);
 }
 
 seed()

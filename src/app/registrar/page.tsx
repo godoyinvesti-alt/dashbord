@@ -18,7 +18,7 @@ export default function RegisterPage() {
   return (
     <AuthShell
       title="Criar sua conta"
-      description="Comece a organizar suas vendas por WhatsApp"
+      description="Gerencie chips, contingência, vendas e financeiro em um só lugar"
       footer={
         <span className="text-muted-foreground">
           Já tem uma conta?{" "}

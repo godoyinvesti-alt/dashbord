@@ -1,119 +1,79 @@
 -- ============================================================================
--- X1 Control — Row Level Security
--- Cada usuário só pode acessar dados do(s) workspace(s) ao qual pertence.
+-- Controle X1 — Row Level Security
+-- Cada usuário só acessa os próprios dados (owner_id = auth.uid()).
 -- ============================================================================
 
--- ----------------------------------------------------------------------------
--- Função auxiliar: verifica se o usuário autenticado pertence ao workspace
--- ----------------------------------------------------------------------------
-create or replace function is_workspace_member(target_workspace_id uuid)
-returns boolean as $$
-  select exists (
-    select 1 from workspace_members wm
-    where wm.workspace_id = target_workspace_id
-      and wm.user_id = auth.uid()
-  );
-$$ language sql stable security definer set search_path = public;
-
-create or replace function current_workspace_role(target_workspace_id uuid)
-returns papel_usuario as $$
-  select wm.papel from workspace_members wm
-  where wm.workspace_id = target_workspace_id
-    and wm.user_id = auth.uid()
-  limit 1;
-$$ language sql stable security definer set search_path = public;
-
--- ----------------------------------------------------------------------------
--- workspaces
--- ----------------------------------------------------------------------------
-alter table workspaces enable row level security;
-
-create policy "membros podem ver o workspace" on workspaces
-  for select using (is_workspace_member(id));
-
-create policy "usuarios autenticados podem criar workspace" on workspaces
-  for insert with check (auth.uid() is not null);
-
-create policy "administradores podem atualizar o workspace" on workspaces
-  for update using (
-    is_workspace_member(id) and current_workspace_role(id) in ('administrador', 'gestor')
-  );
-
--- ----------------------------------------------------------------------------
--- profiles
--- ----------------------------------------------------------------------------
 alter table profiles enable row level security;
+alter table settings enable row level security;
+alter table chips enable row level security;
+alter table chip_recharges enable row level security;
+alter table chip_bans enable row level security;
+alter table chip_status_history enable row level security;
+alter table contingency_assets enable row level security;
+alter table sales enable row level security;
+alter table expenses enable row level security;
+alter table goals enable row level security;
+alter table alerts enable row level security;
 
-create policy "usuario ve o proprio perfil" on profiles
-  for select using (id = auth.uid());
+-- profiles: usuário só vê/edita o próprio perfil
+create policy "profiles_select_own" on profiles for select using (id = auth.uid());
+create policy "profiles_update_own" on profiles for update using (id = auth.uid());
 
-create policy "usuario ve perfis de membros do mesmo workspace" on profiles
-  for select using (
-    exists (
-      select 1 from workspace_members wm1
-      join workspace_members wm2 on wm1.workspace_id = wm2.workspace_id
-      where wm1.user_id = auth.uid() and wm2.user_id = profiles.id
-    )
-  );
+-- settings
+create policy "settings_select_own" on settings for select using (owner_id = auth.uid());
+create policy "settings_insert_own" on settings for insert with check (owner_id = auth.uid());
+create policy "settings_update_own" on settings for update using (owner_id = auth.uid());
+create policy "settings_delete_own" on settings for delete using (owner_id = auth.uid());
 
-create policy "usuario atualiza o proprio perfil" on profiles
-  for update using (id = auth.uid());
+-- chips
+create policy "chips_select_own" on chips for select using (owner_id = auth.uid());
+create policy "chips_insert_own" on chips for insert with check (owner_id = auth.uid());
+create policy "chips_update_own" on chips for update using (owner_id = auth.uid());
+create policy "chips_delete_own" on chips for delete using (owner_id = auth.uid());
 
-create policy "usuario insere o proprio perfil" on profiles
-  for insert with check (id = auth.uid());
+-- chip_recharges
+create policy "chip_recharges_select_own" on chip_recharges for select using (owner_id = auth.uid());
+create policy "chip_recharges_insert_own" on chip_recharges for insert with check (owner_id = auth.uid());
+create policy "chip_recharges_update_own" on chip_recharges for update using (owner_id = auth.uid());
+create policy "chip_recharges_delete_own" on chip_recharges for delete using (owner_id = auth.uid());
 
--- ----------------------------------------------------------------------------
--- workspace_members
--- ----------------------------------------------------------------------------
-alter table workspace_members enable row level security;
+-- chip_bans
+create policy "chip_bans_select_own" on chip_bans for select using (owner_id = auth.uid());
+create policy "chip_bans_insert_own" on chip_bans for insert with check (owner_id = auth.uid());
+create policy "chip_bans_update_own" on chip_bans for update using (owner_id = auth.uid());
+create policy "chip_bans_delete_own" on chip_bans for delete using (owner_id = auth.uid());
 
-create policy "membros veem outros membros do workspace" on workspace_members
-  for select using (is_workspace_member(workspace_id));
+-- chip_status_history
+create policy "chip_status_history_select_own" on chip_status_history for select using (owner_id = auth.uid());
+create policy "chip_status_history_insert_own" on chip_status_history for insert with check (owner_id = auth.uid());
+create policy "chip_status_history_delete_own" on chip_status_history for delete using (owner_id = auth.uid());
 
-create policy "usuario pode se tornar membro ao criar workspace" on workspace_members
-  for insert with check (user_id = auth.uid());
+-- contingency_assets
+create policy "contingency_assets_select_own" on contingency_assets for select using (owner_id = auth.uid());
+create policy "contingency_assets_insert_own" on contingency_assets for insert with check (owner_id = auth.uid());
+create policy "contingency_assets_update_own" on contingency_assets for update using (owner_id = auth.uid());
+create policy "contingency_assets_delete_own" on contingency_assets for delete using (owner_id = auth.uid());
 
-create policy "administradores gerenciam membros" on workspace_members
-  for update using (
-    is_workspace_member(workspace_id) and current_workspace_role(workspace_id) in ('administrador', 'gestor')
-  );
+-- sales
+create policy "sales_select_own" on sales for select using (owner_id = auth.uid());
+create policy "sales_insert_own" on sales for insert with check (owner_id = auth.uid());
+create policy "sales_update_own" on sales for update using (owner_id = auth.uid());
+create policy "sales_delete_own" on sales for delete using (owner_id = auth.uid());
 
-create policy "administradores removem membros" on workspace_members
-  for delete using (
-    is_workspace_member(workspace_id) and current_workspace_role(workspace_id) in ('administrador', 'gestor')
-  );
+-- expenses
+create policy "expenses_select_own" on expenses for select using (owner_id = auth.uid());
+create policy "expenses_insert_own" on expenses for insert with check (owner_id = auth.uid());
+create policy "expenses_update_own" on expenses for update using (owner_id = auth.uid());
+create policy "expenses_delete_own" on expenses for delete using (owner_id = auth.uid());
 
--- ----------------------------------------------------------------------------
--- Política genérica para tabelas "padrão" com coluna workspace_id
--- ----------------------------------------------------------------------------
-do $$
-declare
-  t text;
-  tables text[] := array[
-    'funnel_stages', 'agents', 'products', 'campaigns', 'ad_sets', 'creatives',
-    'chips', 'chip_recharges', 'chip_incidents', 'leads', 'lead_status_history',
-    'lead_notes', 'lead_tags', 'follow_ups', 'sales', 'payments', 'expenses',
-    'goals', 'notifications', 'settings', 'activity_logs'
-  ];
-begin
-  foreach t in array tables loop
-    execute format('alter table %I enable row level security;', t);
+-- goals
+create policy "goals_select_own" on goals for select using (owner_id = auth.uid());
+create policy "goals_insert_own" on goals for insert with check (owner_id = auth.uid());
+create policy "goals_update_own" on goals for update using (owner_id = auth.uid());
+create policy "goals_delete_own" on goals for delete using (owner_id = auth.uid());
 
-    execute format(
-      'create policy "select_workspace_members" on %I for select using (is_workspace_member(workspace_id));',
-      t
-    );
-    execute format(
-      'create policy "insert_workspace_members" on %I for insert with check (is_workspace_member(workspace_id));',
-      t
-    );
-    execute format(
-      'create policy "update_workspace_members" on %I for update using (is_workspace_member(workspace_id));',
-      t
-    );
-    execute format(
-      'create policy "delete_workspace_members" on %I for delete using (is_workspace_member(workspace_id));',
-      t
-    );
-  end loop;
-end $$;
+-- alerts
+create policy "alerts_select_own" on alerts for select using (owner_id = auth.uid());
+create policy "alerts_insert_own" on alerts for insert with check (owner_id = auth.uid());
+create policy "alerts_update_own" on alerts for update using (owner_id = auth.uid());
+create policy "alerts_delete_own" on alerts for delete using (owner_id = auth.uid());

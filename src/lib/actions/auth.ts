@@ -75,7 +75,7 @@ export async function registerAction(
   }
 
   if (data.session) {
-    redirect("/onboarding");
+    redirect("/dashboard");
   }
 
   return {
@@ -134,43 +134,11 @@ export async function resetPasswordAction(
   redirect("/dashboard");
 }
 
-export async function createWorkspaceAction(
-  _prevState: ActionState,
-  formData: FormData
-): Promise<ActionState> {
-  const nome = String(formData.get("nome") || "").trim();
-  if (!nome) {
-    return { error: "Informe o nome do seu negócio." };
-  }
-
-  const slug = nome
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .concat(`-${Math.random().toString(36).slice(2, 7)}`);
-
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("create_workspace_with_owner", {
-    p_nome: nome,
-    p_slug: slug,
-  });
-
-  if (error) {
-    return { error: "Não foi possível criar seu workspace. Tente novamente." };
-  }
-
-  revalidatePath("/dashboard");
-  redirect("/dashboard");
-}
-
 export async function updateProfileAction(
   _prevState: ActionState,
   formData: FormData
 ): Promise<ActionState> {
   const nome = String(formData.get("nome") || "").trim();
-  const telefone = String(formData.get("telefone") || "").trim();
 
   if (!nome) {
     return { error: "O nome não pode ficar em branco." };
@@ -182,10 +150,7 @@ export async function updateProfileAction(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Sessão expirada. Faça login novamente." };
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({ nome, telefone: telefone || null })
-    .eq("id", user.id);
+  const { error } = await supabase.from("profiles").update({ nome }).eq("id", user.id);
 
   if (error) {
     return { error: "Não foi possível atualizar o perfil." };

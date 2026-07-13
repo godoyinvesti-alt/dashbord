@@ -1,5 +1,6 @@
-import { requireContext } from "@/lib/workspace";
-import { listNotifications } from "@/lib/data/notifications";
+import { requireContext } from "@/lib/context";
+import { generateAlerts } from "@/lib/alerts/generate";
+import { listAlerts } from "@/lib/data/alerts";
 import { AppShell } from "@/components/layout/app-shell";
 
 export default async function DashboardLayout({
@@ -8,14 +9,14 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const ctx = await requireContext();
-  const { notifications, unreadCount } = await listNotifications(ctx.workspace.id);
+  await generateAlerts();
+  const { alerts, unreadCount } = await listAlerts();
 
   return (
     <AppShell
-      workspace={{ id: ctx.workspace.id, nome: ctx.workspace.nome }}
-      workspaces={ctx.workspaces}
+      nomeNegocio={ctx.settings.nome_negocio}
       profile={{ nome: ctx.profile.nome, email: ctx.profile.email }}
-      notifications={notifications}
+      alerts={alerts}
       unreadCount={unreadCount}
     >
       {children}

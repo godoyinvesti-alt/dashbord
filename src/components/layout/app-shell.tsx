@@ -7,31 +7,29 @@ import { Menu, PanelLeftClose, PanelLeftOpen, ChevronRight } from "lucide-react"
 
 import { Logo } from "@/components/brand/logo";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
-import { WorkspaceSwitcher } from "@/components/layout/workspace-switcher";
 import { UserMenu } from "@/components/layout/user-menu";
-import { NotificationBell } from "@/components/layout/notification-bell";
+import { AlertsBell } from "@/components/layout/alerts-bell";
+import { BottomNav } from "@/components/layout/bottom-nav";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { VisuallyHidden } from "@/components/ui/visually-hidden";
 import { cn } from "@/lib/utils";
 import { NAV_SECOES } from "@/lib/constants";
-import type { Notification } from "@/lib/types";
+import type { Alert } from "@/lib/types";
 
 const COLLAPSE_KEY = "x1-sidebar-collapsed";
 
 export function AppShell({
   children,
-  workspace,
-  workspaces,
+  nomeNegocio,
   profile,
-  notifications,
+  alerts,
   unreadCount,
 }: {
   children: React.ReactNode;
-  workspace: { id: string; nome: string };
-  workspaces: { id: string; nome: string }[];
+  nomeNegocio: string;
   profile: { nome: string; email: string };
-  notifications: Notification[];
+  alerts: Alert[];
   unreadCount: number;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -74,9 +72,11 @@ export function AppShell({
         <div className={cn("flex h-16 items-center gap-2 px-4", collapsed && "justify-center px-2")}>
           <Logo iconOnly={collapsed} className="text-sidebar-foreground [&_span:last-child]:text-sidebar-foreground" />
         </div>
-        <div className={cn("px-3 pb-3", collapsed && "px-2")}>
-          <WorkspaceSwitcher current={workspace} workspaces={workspaces} collapsed={collapsed} />
-        </div>
+        {!collapsed && (
+          <div className="px-4 pb-3">
+            <p className="truncate text-xs font-medium text-sidebar-foreground/60">{nomeNegocio}</p>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto scrollbar-thin py-1">
           <SidebarNav collapsed={collapsed} />
         </div>
@@ -96,7 +96,7 @@ export function AppShell({
         </div>
       </aside>
 
-      {/* Drawer mobile */}
+      {/* Drawer mobile (menu completo) */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-72 bg-sidebar p-0 text-sidebar-foreground [&_svg]:text-inherit">
           <VisuallyHidden>
@@ -105,8 +105,8 @@ export function AppShell({
           <div className="flex h-16 items-center gap-2 px-4">
             <Logo className="text-sidebar-foreground [&_span:last-child]:text-sidebar-foreground" />
           </div>
-          <div className="px-3 pb-3">
-            <WorkspaceSwitcher current={workspace} workspaces={workspaces} />
+          <div className="px-4 pb-3">
+            <p className="truncate text-xs font-medium text-sidebar-foreground/60">{nomeNegocio}</p>
           </div>
           <div className="flex-1 overflow-y-auto py-1">
             <SidebarNav onNavigate={() => setMobileOpen(false)} />
@@ -128,7 +128,7 @@ export function AppShell({
 
           <nav className="hidden min-w-0 flex-1 items-center gap-1.5 text-sm text-muted-foreground md:flex">
             <Link href="/dashboard" className="hover:text-foreground">
-              {workspace.nome}
+              {nomeNegocio}
             </Link>
             {currentSection && currentSection.href !== "/dashboard" && (
               <>
@@ -141,17 +141,15 @@ export function AppShell({
           </nav>
 
           <div className="flex flex-1 items-center justify-end gap-1.5 md:flex-none">
-            <NotificationBell
-              notifications={notifications}
-              unreadCount={unreadCount}
-              workspaceId={workspace.id}
-            />
+            <AlertsBell alerts={alerts} unreadCount={unreadCount} />
             <UserMenu nome={profile.nome} email={profile.email} />
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6">{children}</main>
+        <main className="flex-1 p-4 pb-24 sm:p-6 md:pb-6">{children}</main>
       </div>
+
+      <BottomNav />
     </div>
   );
 }

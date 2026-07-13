@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/theme-provider";
 import { APP_NAME } from "@/lib/constants";
 
 const geistSans = Geist({
@@ -17,11 +18,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: `${APP_NAME} — Gestão de vendas por WhatsApp`,
+    default: `${APP_NAME} — Chips, contingência, vendas e financeiro`,
     template: `%s | ${APP_NAME}`,
   },
   description:
-    "Painel completo para gerenciar vendas 1 a 1 pelo WhatsApp: leads, funil, pagamentos, follow-ups e chips.",
+    "Painel completo para gerenciar chips, ativos de contingência, vendas, financeiro e alertas operacionais.",
 };
 
 export default function RootLayout({
@@ -32,11 +33,14 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <TooltipProvider>{children}</TooltipProvider>
-        <Toaster />
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <TooltipProvider>{children}</TooltipProvider>
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );
